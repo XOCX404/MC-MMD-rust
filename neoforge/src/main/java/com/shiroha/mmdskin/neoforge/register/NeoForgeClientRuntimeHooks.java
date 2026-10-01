@@ -1,6 +1,8 @@
 package com.shiroha.mmdskin.neoforge.register;
 
 import com.shiroha.mmdskin.config.UIConstants;
+import com.shiroha.mmdskin.compat.maid.runtime.MaidMMDModelManager;
+import com.shiroha.mmdskin.compat.maid.ui.VerifiedMaidDirectory;
 import com.shiroha.mmdskin.debug.client.PerformanceHud;
 import com.shiroha.mmdskin.neoforge.network.MmdSkinNetworkPack;
 import com.shiroha.mmdskin.player.runtime.MmdSkinRendererPlayerHelper;
@@ -100,6 +102,8 @@ final class NeoForgeClientRuntimeHooks {
     }
 
     void onPlayerLoggedOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        MaidMMDModelManager.clearAll();
+        VerifiedMaidDirectory.clearSession();
         MMDCameraController.getInstance().exitStageMode();
         PlayerModelSyncService.onDisconnect();
         MmdSkinRendererPlayerHelper.onDisconnect();

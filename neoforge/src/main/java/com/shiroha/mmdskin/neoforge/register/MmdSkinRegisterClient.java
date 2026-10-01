@@ -2,6 +2,8 @@ package com.shiroha.mmdskin.neoforge.register;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.shiroha.mmdskin.neoforge.config.ModConfigScreen;
+import com.shiroha.mmdskin.neoforge.maid.MaidContainerGuiHandler;
+import com.shiroha.mmdskin.compat.maid.ui.PlayerMaidManagerScreen;
 import com.shiroha.mmdskin.render.entity.EntityRenderFactory;
 import com.shiroha.mmdskin.ui.wheel.ConfigWheelScreen;
 import com.shiroha.mmdskin.util.KeyMappingUtil;
@@ -19,6 +21,7 @@ import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.settings.KeyConflictContext;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import org.apache.logging.log4j.LogManager;
@@ -71,6 +74,10 @@ public class MmdSkinRegisterClient {
     public static void init(IEventBus modEventBus) {
         KeyMappingUtil.setBoundKeyGetter(KeyMapping::getKey);
         ConfigWheelScreen.setModSettingsScreenFactory(() -> ModConfigScreen.create(null));
+        if (ModList.get().isLoaded("touhou_little_maid")) {
+            ConfigWheelScreen.setMaidManagerScreenFactory(() -> new PlayerMaidManagerScreen(null));
+            MaidContainerGuiHandler.registerIfAvailable();
+        }
         NETWORK_BINDINGS.register();
 
         modEventBus.addListener(MmdSkinRegisterClient::onRegisterKeyMappings);

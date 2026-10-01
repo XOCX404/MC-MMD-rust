@@ -381,5 +381,16 @@
   "gui.mmdskin.model_anim.slot.sneak": "Sneak",
   "gui.mmdskin.model_anim.slot.onHorse": "On Horse",
   "gui.mmdskin.model_anim.slot.crawl": "Crawl",
-  "gui.mmdskin.model_anim.slot.lieDown": "Lie Down"
+  "gui.mmdskin.model_anim.slot.lieDown": "Lie Down",
+  "gui.mmdskin.config.maid_manager": "Maid Manager",
+  "gui.mmdskin.maid_manager.last_seen": "Seen this session",
+  "gui.mmdskin.maid_manager.title": "Maid Manager",
+  "gui.mmdskin.maid_manager.loaded": "Loaded",
+  "gui.mmdskin.maid.save_failed": "Could not save the maid model preference",
+  "gui.mmdskin.maid_model_selector.search": "Search models...",
+  "gui.mmdskin.maid.current": "Current",
+  "gui.mmdskin.maid_model_selector.no_results": "No matching models",
+  "gui.mmdskin.maid_manager.scope": "Only maids verified as yours are listed.",
+  "gui.mmdskin.maid.default_appearance": "Restore default maid appearance",
+  "gui.mmdskin.maid_manager.empty": "No verified maids in this session"
 }

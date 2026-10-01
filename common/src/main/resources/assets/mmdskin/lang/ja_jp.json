@@ -344,5 +344,16 @@
   "gui.mmdskin.model_anim.slot.sneak": "スニーク",
   "gui.mmdskin.model_anim.slot.onHorse": "騎馬",
   "gui.mmdskin.model_anim.slot.crawl": "匍匐",
-  "gui.mmdskin.model_anim.slot.lieDown": "伏せ"
+  "gui.mmdskin.model_anim.slot.lieDown": "伏せ",
+  "gui.mmdskin.config.maid_manager": "メイド管理",
+  "gui.mmdskin.maid_manager.last_seen": "このセッションで確認済み",
+  "gui.mmdskin.maid_manager.title": "メイド管理",
+  "gui.mmdskin.maid_manager.loaded": "読み込み済み",
+  "gui.mmdskin.maid.save_failed": "メイドのモデル設定を保存できませんでした",
+  "gui.mmdskin.maid_model_selector.search": "モデルを検索…",
+  "gui.mmdskin.maid.current": "使用中",
+  "gui.mmdskin.maid_model_selector.no_results": "一致するモデルがありません",
+  "gui.mmdskin.maid_manager.scope": "所有者を確認できたメイドのみ表示します。",
+  "gui.mmdskin.maid.default_appearance": "メイドの標準外見に戻す",
+  "gui.mmdskin.maid_manager.empty": "このセッションで確認済みのメイドはいません"
 }

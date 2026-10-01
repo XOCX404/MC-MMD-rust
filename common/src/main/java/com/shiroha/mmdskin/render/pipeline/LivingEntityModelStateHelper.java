@@ -61,16 +61,15 @@ public final class LivingEntityModelStateHelper {
             EyeTrackingHelper.updateEyeTracking(scenePort, modelHandle, entity, entityYaw, tickDelta, modelName);
         }
 
-        Vec3 renderOrigin = context == RenderScene.PAPERDOLL
-                ? Vec3.ZERO
-                : entity instanceof Player player
+        // 纸娃娃的显示变换独立，物理仍使用玩家真实世界运动。
+        Vec3 renderOrigin = entity instanceof Player player
                 ? resolveRenderOrigin(player, tickDelta)
                 : new Vec3(
                         Mth.lerp(tickDelta, entity.xo, entity.getX()),
                         Mth.lerp(tickDelta, entity.yo, entity.getY()),
                         Mth.lerp(tickDelta, entity.zo, entity.getZ())
                 );
-        if (context != RenderScene.PAPERDOLL && entity instanceof Player player) {
+        if (entity instanceof Player player) {
             renderOrigin = renderOrigin.add(FirstPersonManager.getLocalVrModelRootOffset(player));
         }
 
@@ -78,9 +77,7 @@ public final class LivingEntityModelStateHelper {
         float posX = (float) renderOrigin.x;
         float posY = (float) renderOrigin.y;
         float posZ = (float) renderOrigin.z;
-        float bodyYaw = context == RenderScene.PAPERDOLL
-                ? entityYaw * ((float) Math.PI / 180F)
-                : entity instanceof Player player
+        float bodyYaw = entity instanceof Player player
                 ? resolveBodyYaw(player, tickDelta)
                 : Mth.rotLerp(tickDelta, entity.yBodyRotO, entity.yBodyRot) * ((float) Math.PI / 180F);
         scenePort.setModelPositionAndYaw(modelHandle, posX, posY, posZ, bodyYaw);

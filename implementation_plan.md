@@ -1,105 +1,115 @@
-# 环形菜单缩放修复（#85）与女仆模型持久化及交互重构（#91）实施计划
+# 环形菜单缩放（#85）与女仆模型持久化及交互（#91）实施计划（纠错修订版）
 
-## 1. 目标概述
-本项目在 NeoForge 1.21.1 平台下排查并解决两个关键体验与功能缺陷：
-1. **GitHub Issue #85**：环形菜单（Radial Menu / WheelScreen）在视频设置调整界面缩放比率（GUI Scale）时出现文字严重溢出穿插、相邻扇区重叠、以及所有扇区被暴力裁剪为 `gui.mmdskin.confi..` 的缺陷；
-2. **GitHub Issue #91**：车万女仆（Touhou Little Maid）兼容模型在游戏重启后配置完全丢失恢复默认的问题，并在用户提议的基础上，实现“原生背包界面换装按钮注入”与“在主轮盘中集成以玩家为主人的女仆列表管理界面”的双轨直观交互系统。
+## 1. 目标与兼容边界
 
----
+本计划保留轮盘缩放修复、女仆模型本地持久化、原生背包换装入口、主轮盘女仆管理入口及模型搜索的需求。本次仅纠正文档，尚未实施代码改造。后续跨模块接口变更及新增界面须在计划获批后执行。
 
-## 2. 方案技术架构与改动清单
+当前工作区为 Minecraft 1.21.1，包含 common、NeoForge 和 Fabric；没有旧版 Forge 模块。目标优先覆盖 NeoForge，修改 common 契约时同时检查 Fabric 调用方。原文中的 Issue 编号及现象作为待复现线索保留；此次未能取得对应 GitHub Issue 正文，不把截图表现、复现条件或外部建议描述成已经独立核实的事实。
 
-### 模块一：环形菜单自适应与文字动态缩放（解决 Issue #85）
+仅客户端模式是硬性边界：服务端未安装本模组、不提供 MMD 网络通道时，轮盘、本地女仆换装、恢复原版及持久化仍须正常工作。新增界面和保存不能等待服务端确认，不要求服务端安装模组或下载模型。保留 NeoForge 的 `PayloadRegistrar.optional()` 和现有发送保护。基础修复不改变网络版本、MAID_MODEL 编解码或玩家模型同步行为；多人协议增强独立推进。
 
-#### 2.1 扇区几何与文字测量解耦
-- **文件**：`common/src/main/java/com/shiroha/mmdskin/ui/wheel/AbstractWheelScreen.java`
-- **问题根源**：原实现中使用 `Mth.clamp(..., 86.0f, 210.0f)` 强行设定了 86 像素的保底宽度。在较大 GUI Scale 或小逻辑分辨率下，扇区真实物理弦长仅 30~50 像素，导致 86 像素的文字侵入邻近扇区达 20 像素以上造成严重重叠错位；而 `fitText` 暴力削减字符直到宽度小于 86 像素，又导致以 `gui.mmdskin.config.` 开头的长文本全部被一致截断为 17 字符的 `gui.mmdskin.confi..`。
-- **改动设计**：
-  1. 计算扇区真实的几何安全宽度 `safeWidth = 2.0f * textRadius * (float) Math.sin(halfSweepRad) * 0.88f`，彻底移除人为强加的 86px 最小硬限制。
-  2. 引入 `PoseStack` 矩阵等比缩放：当文字宽度 `textWidth > safeWidth` 时，动态计算缩放系数 `scale = Math.min(1.0f, safeWidth / (float) textWidth)`。设定缩放下限为 `0.62f`，只要缩放后能够容纳，则保持文字完整不截断；仅当缩放至 0.62x 后仍超出可用空间时，才调用放宽后的 `fitText` 进行末尾字符省略。
-  3. 修正中心气泡尺寸计算：避免 `bubbleRadius` 保底 30 像素导致的溢出外圈，确保气泡半径不超过 `innerRadius - 2`。
-  4. 将 `WheelEntry` 升级为支持 `Component`，并在绘制时动态测量与本地化渲染，彻底消除构造函数过早固化导致原始未翻译键名的问题。
+## 2. 已查证的问题与原计划纠错
 
----
+`AbstractWheelScreen` 确有 86px 的扇区文字宽度下限，但单行还有 62px、双行标签还有 56px，中心文字还有 88px 的下限，中心气泡还有 30px 的最小半径。只删 86px 不能解决所有越界。原方案的弦长公式也不能直接作为任意方向扇区内水平文字的安全宽度：文字高度、径向厚度、阴影、双行间距与动画缩放都要参与边界校验。
 
-### 模块二：女仆模型持久化与数据自愈（解决 Issue #91 根源）
+主轮盘及女仆轮盘确实在构造阶段将翻译组件转为字符串，可能固化当时的文本；但现有中、英、日语言文件均有主轮盘相关键。显示原始键名的原因尚未确认，不能断言改用 Component 就能解决资源缺失或加载问题。
 
-#### 2.2 本地持久化与按需自愈
-- **文件**：`common/src/main/java/com/shiroha/mmdskin/ui/config/ModelSelectorConfig.java`
-- **改动设计**：
-  1. 在 `ConfigData` 中新增 `maidModels` 映射字典（`ConcurrentHashMap<String, String>`），以女仆实体的全局唯一 `UUID` 字符串为键，以 MMD 模型名称为值。
-  2. 提供 `getMaidModel(UUID)`、`setMaidModel(UUID, String)`、`removeMaidModel(UUID)` 和 `getAllMaidModels()` 接口。设置或清除时立即保存至磁盘配置文件 `config/mmdskin/model_selector.json`。
+女仆绑定目前仅保存在 `MaidMMDModelManager` 内存表，`ModelSelectorConfig` 没有女仆字段，缺少本地持久化有源码依据。但配置 `save()` 存在一秒冷却，冷却内直接返回且没有延迟补写，不能直接用它实现“立即保存”。
 
-- **文件**：`common/src/main/java/com/shiroha/mmdskin/compat/maid/runtime/MaidMMDModelManager.java`
-- **改动设计**：
-  1. 在 `bindModel(UUID, modelName)` 中不仅维护内存缓存，同时同步回写 `ModelSelectorConfig`。
-  2. 在 `unbindModel(UUID)` 中同步从 `ModelSelectorConfig` 移除。
-  3. 重构 `getBindingModelName(UUID)` 与 `hasMMDModel(UUID)`：当内存缓存未命中时，自动检索 `ModelSelectorConfig` 本地配置。若配置中存在有效模型，自动回填进内存并初始化，使得世界重载或客户端重启后，女仆一进入视距便能无缝自愈恢复模型。
+`bindModel()` 同时被本地选择和远端 MAID_MODEL 接收调用，无条件在这里写盘会将远端消息保存成本机偏好。`getModel()` 还直接读取内存表，原计划只改 `hasMMDModel()` 与 `getBindingModelName()`，遗漏了实际模型取得路径。
 
-#### 2.3 网络同步协议与服务端持久化注册
-- **文件**：`common/src/main/java/com/shiroha/mmdskin/compat/maid/network/MaidModelNetworkHandler.java`
-- **文件**：`neoforge/src/main/java/com/shiroha/mmdskin/neoforge/network/MmdSkinNetworkPack.java`
-- **改动设计**：
-  1. 在 `MAID_MODEL` 网络包中，载荷格式升级为 `maidUUID.toString() + "|" + modelName`，向后兼容保留 `entityId`。
-  2. 客户端解包时优先基于 UUID 执行绑定，彻底消除实体跨视距生成延迟导致的绑定丢失。
-  3. 服务端在收到女仆模型更新时，在服务端模型表中常驻登记，供新玩家发送 `REQUEST_ALL_MODELS` 时统一回传。
+现有 MAID_MODEL 为 `arg0=entityId`、`animId=modelName`。改成 `UUID|modelName` 后，旧客户端仍会把整个字符串当作模型名，保留 entityId 并不能保证兼容。`ServerModelRegistry` 是玩家模型内存表，玩家退出会删除记录，不能直接用作女仆表，也不能称为服务端重启持久化。
 
----
+当前女仆选择服务已经提供 Default 首项，界面已有当前项背景高亮；完善时不重复增加默认条目。女仆 UUID 和模型名不能证明主人、所属世界或在线状态，所有历史绑定不能直接合并成“我的女仆”。原生背包可打开也不能替代未来服务端的权限校验。
 
-### 模块三：女仆直观交互系统重构（落实用户指定的直观方案）
+## 3. 第一阶段：轮盘与本地持久化
 
-#### 3.1 车万女仆原生背包界面换装按钮注入
-- **文件**：`neoforge/src/main/java/com/shiroha/mmdskin/neoforge/maid/MaidContainerGuiHandler.java`
-- **改动设计**：
-  1. 订阅客户端界面初始化事件 `ScreenEvent.Init.Post`。
-  2. 当当前打开的界面为车万女仆的原生背包容器界面（`AbstractMaidContainerGui` 或包含 `Maid` 的容器界面）时，通过容器获取当前交互的女仆实体实例 `EntityMaid`。
-  3. 在女仆背包界面的合适位置（靠近左上角女仆头像与原生衣架按钮处）注入一个半透明质感的 MMD 快捷按钮。
-  4. 玩家点击按钮时，直接弹出 `new MaidModelSelectorScreen(maid.getUUID(), maid.getId(), maid.getName().getString())`。
-  5. 契合车万女仆原生交互习惯，零学习成本且天然具备主人权限保护。
+### 轮盘布局与本地化
 
-#### 3.2 主轮盘接入主人女仆列表管理界面
-- **文件**：`common/src/main/java/com/shiroha/mmdskin/ui/wheel/ConfigWheelScreen.java`
-- **改动设计**：
-  1. 在检测到车万女仆模组处于加载状态时，主配置轮盘中追加一个 `maid` 槽位，显示名称为“女仆管理”（本地化键 `gui.mmdskin.config.maid_manager`）。
-  2. 点击该槽位唤出专门的主人女仆集中管理界面 `PlayerMaidManagerScreen`。
+统一修正扇区单行、双行和中心文本的布局，移除突破实际可用空间的固定最小宽度。文字保持水平显示，按翻译后的真实像素宽高测量，并校验最终文字矩形与扇区角向、径向边界及屏幕边界的关系。弦长仅作为初始估计，不能代替完整边界检查；双行图标、标签、阴影及动画放大一并计算。
 
-- **文件**：`common/src/main/java/com/shiroha/mmdskin/compat/maid/ui/PlayerMaidManagerScreen.java`（新建）
-- **改动设计**：
-  1. 检索当前世界中以当前玩家为主人的女仆实体（匹配 `getOwnerUUID()` 等同于玩家 UUID），同时合并本地 `ModelSelectorConfig` 中曾经记录过的所有女仆记录。
-  2. 以卡片列表形式展示所有归属于玩家的女仆：显示女仆名称、当前配置的 MMD 模型名称、在线/视距状态。
-  3. 提供直观的“更改模型”与“还原原版”按钮，点击即可直接进入该女仆的模型选择器。玩家无需在游戏世界中四处走动追逐女仆，即可统一调整所有女仆的模型。
+优先等比缩小文字，原方案的 0.62 缩放下限作为待实机验证参数。达到可读性下限仍放不下时，按字体宽度省略，并避免切断 Unicode 字符。区域连省略符都容纳不了时不强行越界绘制，选中项通过受屏幕约束的提示显示完整名称。零、一、二槽位及零宽区域单独处理，避免直接套用弦长公式。
 
-#### 3.3 模型选择界面（MaidModelSelectorScreen）功能完善
-- **文件**：`common/src/main/java/com/shiroha/mmdskin/compat/maid/ui/MaidModelSelectorScreen.java`
-- **改动设计**：
-  1. 列表首项固定显示为“恢复原版女仆外观”（Default），并以醒目图标标记。
-  2. 界面顶部增加轻量级搜索过滤输入框 `EditBox`，输入关键词实时过滤模型列表。
-  3. 当前正在使用的模型项右侧标注“当前使用”高亮标记。
+中心气泡连同边框和弹出动画受内圈及屏幕限制，中心文字按气泡实际内接空间布局，不能继续强加 88px 宽度。检查布局变化后的命中区域，保留现有按键交互。
 
----
+需要翻译的槽位保留 Component，测量与绘制使用同一解析结果；用户自定义动作名、表情名、模型名使用 literal 组件。若调整 WheelEntry 或中心文本接口，必须同步适配 ConfigWheelScreen、MaidConfigWheelScreen、ActionWheelScreen、MorphWheelScreen 和 MaidActionWheelScreen。原文件清单遗漏了后三个调用方。键名显示问题另查资源加载及打包，不预设根因。
 
-## 3. 受影响文件清单一览
-| 文件路径 | 修改性质 | 核心功能点 |
-| :--- | :--- | :--- |
-| `common/.../ui/wheel/AbstractWheelScreen.java` | 修改 | 文字自适应 PoseStack 缩放、移除 86px 硬限制、气泡尺寸防溢出、Component 支持 |
-| `common/.../ui/wheel/ConfigWheelScreen.java` | 修改 | 适配 Component、追加女仆管理槽位 |
-| `common/.../ui/wheel/MaidConfigWheelScreen.java` | 修改 | 适配 Component 与尺寸参数 |
-| `common/.../ui/config/ModelSelectorConfig.java` | 修改 | 增加 maidModels 持久化字段及磁盘读写逻辑 |
-| `common/.../compat/maid/runtime/MaidMMDModelManager.java` | 修改 | 绑定写入配置、未命中时自愈读取本地配置 |
-| `common/.../compat/maid/service/DefaultMaidModelSelectionService.java` | 修改 | 协同持久化与网络同步 |
-| `common/.../compat/maid/network/MaidModelNetworkHandler.java` | 修改 | 网络包载荷携带 UUID |
-| `neoforge/.../neoforge/network/MmdSkinNetworkPack.java` | 修改 | 网络包支持 UUID 序列化解析与服务端回放 |
-| `neoforge/.../neoforge/maid/MaidContainerGuiHandler.java` | 新增 | 监听背包界面并注入 MMD 换装按钮 |
-| `neoforge/.../neoforge/register/NeoForgeClientRuntimeHooks.java` | 修改 | 注册 GUI 注入处理器与女仆快捷交互优化 |
-| `common/.../compat/maid/ui/PlayerMaidManagerScreen.java` | 新增 | 主人专属女仆列表统一管理与批量配置界面 |
-| `common/.../compat/maid/ui/MaidModelSelectorScreen.java` | 修改 | 增加搜索框、显式恢复原版项与当前模型标记 |
-| `common/.../assets/mmdskin/lang/` | 修改 | 补充女仆管理、搜索框及操作提示的多语言条目 |
+### 保存、恢复与生命周期
 
----
+在现有 `config/mmdskin/model_selector.json` 增加女仆偏好字段，以女仆 UUID 标识。旧配置字段缺失或为 null 时补空表，保留玩家模型和快捷槽位；校验非法 UUID、空值及坏条目，不能因单条女仆记录损坏重置整份配置。查询返回副本。
 
-## 4. 实施与验证步骤
-1. **基础库与持久化改造**：实现 `ModelSelectorConfig` 的女仆映射与 `MaidMMDModelManager` 的自愈读取。
-2. **环形菜单缩放修复**：重构 `AbstractWheelScreen` 中的几何安全弦长与 `PoseStack` 文字缩放逻辑，并验证在不同 GUI 缩放比率下的渲染表现。
-3. **原生背包界面注入**：编写 `MaidContainerGuiHandler`，在车万女仆背包界面中注入半透明快捷按钮。
-4. **主人女仆管理界面**：编写 `PlayerMaidManagerScreen` 并在主轮盘中完成入口接入。
-5. **构建与运行测试**：执行 `./gradlew compileJava` 验证编译无误，测试单人世界与重启场景下的模型持久性。
+在 `DefaultMaidModelSelectionService` 编排用户主动选择的本地绑定与保存，运行时 manager 不因远端接包、读取配置或渲染而写盘。网络发送为附加步骤，缺少连接、通道不支持或发送失败均不得阻止本地生效与保存。保存失败要反馈，不能把仅在内存生效显示为已持久化。
+
+女仆选择和恢复使用明确的强制保存路径，绕过一秒冷却，避免顺带重构玩家配置保存逻辑。采用同目录临时文件替换并处理失败，防止直接截断有效配置；并发保存串行执行，保证短时间内连续选择最终落盘的是最后一次结果。
+
+“恢复原版”是明确的本地选择，持久化默认模型值，不能简单删除后又回退到远端绑定。清除本地覆盖与恢复原版区分处理。解析顺序为“明确本地偏好（包括默认）→ 当前连接的远端绑定 → 原版”，远端消息不能覆盖用户本地展示选择。
+
+`getBindingModelName()`、`hasMMDModel()`、`getModel()` 使用一致的有效绑定解析，确保渲染、选择器及材质界面都能按需恢复。模型暂缺时显示原版并保留偏好，不每帧重试；模型目录刷新后允许重新尝试。模型仍由现有 ModelRepository 加载与释放，恢复偏好不等于立即创建原生实例。
+
+本地偏好沿用当前全局配置范围，不擅自为旧记录补造世界或主人信息。远端绑定只属于当前连接，退出或切换世界时清理；本地偏好保留。模型重载只清理已加载模型引用，不删除绑定和磁盘配置。若需要按世界隔离本地偏好，应另行确认数据键与迁移规则。
+
+第一阶段保留现有同步端口和包格式。无有效连接或实体 ID 时，新增本地操作可跳过发送。不能把 NeoForge 捕获发送异常描述成已经完成通道能力验证，也不顺带改动 Fabric 的其他发送行为。
+
+## 4. 第二阶段：本地交互入口
+
+### 原生背包入口
+
+NeoForge 原生背包按钮通过 `MmdSkinRegisterClient` 的实际客户端事件链注册，不能仅把处理器列到 NeoForgeClientRuntimeHooks 就视为完成挂载。精确识别目标界面和正在交互的女仆，禁止仅按类名包含 Maid 注入。按钮按真实界面位置和尺寸布局，处理 GUI Scale、窗口变化及重复初始化。
+
+当前尚未核实目标车万女仆版本的界面、容器取实体及主人查询接口；原文的 `AbstractMaidContainerGui`、`getOwnerUUID()` 和衣架按钮位置均为待核实项。实施前检查目标版本官方源码或 jar，不能凭名称直接实现。模组缺席或接口不支持时仅跳过新增入口，现有女仆轮盘继续可用；common 和专用服务器启动链路不得硬加载可选客户端类。
+
+取得实体后复用 MaidModelSelectorScreen 与选择服务。为选择器增加来源界面返回能力，修正当前关闭直接 `setScreen(null)` 的路径，确保能返回原生背包。换装保持本地展示语义；未来共享修改的权限另由服务端检查。
+
+### 主轮盘与管理列表
+
+主轮盘追加女仆管理槽位，通过兼容能力或平台提供的客户端工厂控制可选入口，common 不直接依赖 NeoForge 或女仆实现类。新增槽位按实际数量重新布局，保留现有对准实体的女仆轮盘快捷入口。
+
+PlayerMaidManagerScreen 首先展示当前客户端已加载且能够验证主人为本地玩家的女仆。历史列表只加入曾经通过实体验证并记录了主人及上下文的条目，旧的 UUID/模型名记录不自动视为当前玩家所有。名称和状态基于实际数据；不在客户端加载不能称为离线、死亡或已删除，客户端也不能保证列出世界中的所有女仆。
+
+可验证的历史条目可修改本地偏好，但没有有效实体 ID 时不发送旧协议包，实体再次可见后按本地偏好恢复。列表不加载远处区块、不依赖新增服务端查询，本地记录不能充当服务端权限证明。
+
+### 选择器完善
+
+保留已有默认首项和选中高亮，默认项显示本地化的“恢复原版女仆外观”，内部仍使用 UIConstants.DEFAULT_MODEL_NAME。增加搜索与当前使用文字标记，分离模型身份和展示文案。过滤基于完整列表，保持默认项可访问，并正确重算命中索引、滚动范围及数量。
+
+适配小逻辑分辨率，避免现有最小窗口尺寸将面板或按钮撑出屏幕；处理搜索焦点、刷新和返回来源界面。新增文案同步现有中、英、日资源，实际目录为 `common/src/main/resources/assets/mmdskin/lang/`。
+
+## 5. 第三阶段：多人同步增强，独立审批
+
+UUID 同步、未加载实体的消息保留、新玩家回放和服务端重启保存是不同能力，不作为前两阶段的依赖。本阶段仅记录后续方向，基础修复不实施协议升级。
+
+若以后升级载荷，需先确定可选能力协商或独立载荷方案；新格式仅发给明确支持的端，旧连接继续使用旧格式。两平台需同步处理 MaidModelSyncPort、发送绑定、编解码、接收、回放及测试。还要评估现有“忽略自身 UUID 消息”的逻辑是否误丢本人女仆回放。
+
+服务端女仆注册表与玩家表分离，校验世界、实体及真实权限，处理默认恢复、实体删除、世界切换和关闭。内存表只能称为会话回放；跨服务端重启持久化需独立的世界存储与生命周期方案。客户端选择配置不能用作服务端存储，不上传模型文件。
+
+无支持端时保持本地功能，不引入强制连接要求、持续请求或重试刷屏。远端接收只更新会话状态，不能持久化成本机偏好。
+
+## 6. 文件范围与验收
+
+下表是后续实施范围，不是本次已完成改动。新增文件名为拟定职责，兼容适配细节在目标接口核实后确定。
+
+| 范围 | 文件及调用关系 |
+| --- | --- |
+| 轮盘布局 | AbstractWheelScreen 及 ConfigWheelScreen、MaidConfigWheelScreen、ActionWheelScreen、MorphWheelScreen、MaidActionWheelScreen |
+| 本地持久化 | ModelSelectorConfig、DefaultMaidModelSelectionService、MaidMMDModelManager；必要时增加可测试的保存端口 |
+| 生命周期 | MaidModelRepositoryExtension、两平台客户端退出钩子：核对重载、连接切换和模型释放 |
+| 新增交互 | MaidModelSelectorScreen、拟新增 PlayerMaidManagerScreen 与可选查询适配；NeoForge 拟新增 MaidContainerGuiHandler，经 MmdSkinRegisterClient 挂载 |
+| 资源和测试 | 三种语言文件、现有 DefaultMaidModelSelectionServiceTest，以及配置、有效绑定解析和布局的定向测试 |
+| 后续网络 | MaidModelSyncPort、MaidModelNetworkHandler、两平台发送绑定和 MmdSkinNetworkPack、注册与回放设施；仅第三阶段审批后修改 |
+
+本地链路为“界面 → 选择服务 → 本地保存与运行时绑定 → 有效绑定查询 → 模型仓库”；现有发送为附加步骤，接收仅修改会话状态。实施前梳理全部调用方，禁止渲染每帧写盘、重复广播或自行释放仓库托管句柄。新增代码添加中文注释，单文件超过 1000 行时拆分。
+
+先复现轮盘问题并记录窗口、GUI Scale、语言及槽位数量，核实女仆兼容接口；再分别实施轮盘、本地持久化和交互入口。构建前按 gradle-ide-parity 探测环境，使用 wrapper 与项目要求的 JDK。编译候选任务为 `:common:compileJava :neoforge:compileJava :fabric:compileJava`，测试选择服务、配置保存及绑定解析。资源任务若触发原生准备，按实际构建依赖处理。本次文档纠错未执行编译或实机测试。
+
+| 场景 | 验收要求 |
+| --- | --- |
+| GUI Scale、分辨率、中英日与长名称 | 所有轮盘文本、阴影、图标和中心边框不越界；动画、槽位数量和命中区域一致，完整名称可获取 |
+| 仅客户端连接未安装本模组的服务端 | 换装、恢复、保存、搜索及适用入口正常，不等待确认、不新增握手、不因网络缺席断开或刷屏 |
+| 重启及短时间连续选择 | 模型和明确的默认选择恢复；一秒内连续修改保存最后一次结果，玩家模型和快捷槽位保留 |
+| 旧配置、坏条目、模型暂缺与保存失败 | 合法旧数据保留；暂缺模型回退但不丢偏好；保存失败可见且不破坏有效文件 |
+| 远端消息、重载及连接切换 | 远端不写本地偏好；重载不删绑定；退出清理会话状态，本地选择保留 |
+| 历史及视距外女仆 | 不伪造主人、在线状态或实体 ID；不能验证归属的记录不进入“我的女仆” |
+| 可选模组缺席及背包交互 | 不硬加载可选类、不误注入或重复按钮；原生背包可正确返回，现有轮盘继续可用 |
+| 平台与协议 | common、NeoForge、Fabric 编译及定向测试通过；前两阶段协议不变，专用服务器不硬加载新增界面 |
+
+以上均为待执行的验收要求。界面缩放、首帧恢复、反复打开背包及仅客户端连接仍需实机验证，不能以编译通过替代。
