@@ -125,4 +125,12 @@ Java 端与 Rust 端的内存安全依靠句柄路由机制保障。Rust 端使�
 - 玩家独立替换配置：持久化于 `ModelSelectorConfig`，支持在游戏内配置界面或 Alt 快捷轮盘中按玩家名/UUID 指定独立展示模型。
 
 ---
-*本索引文件由子代理全库代码扫描与架构分析自动化生成，作为工作区全模块认知与后续开发的唯一基准文档。*
+## 6. VMD 平滑与独立模型/动作预览工具
+
+`rust_engine/src/vmd_smoothing/` 为独立的离线动画处理模块，负责原曲线采样、位移与四元数平滑、循环处理、保留原 VMD 非骨骼数据及安全副本输出。循环与非循环均保持原首末姿态，足部 IK 保护原位移范围和极值时刻。支持全部骨骼轨道（含 IK）和多个独立平滑组，后启用组覆盖先组，各轨道从原源计算；`config.rs` 读写分组 JSON。`rust_engine/src/bin/vmd_smooth.rs` 提供单文件、目录批处理和分组配置入口，使用说明见 `rust_engine/VMD_SMOOTHING.md`。
+
+`rust_engine/src/bin/viewer/main.rs` 为同时预览模型和动作的桌面入口，通过 Cargo 的 `viewer` feature 编译。`gui.rs` 生成操作事件，`renderer.rs` 管理模型与动画渲染；`motion_edit.rs` 管理原始动作、平滑副本和后台任务，`smoothing_panel.rs` 提供平滑与批处理面板，`state.rs` 保存预览器参数。纯文件处理在线程中执行，模型动画层切换仍由主线程完成。
+
+项目 24 个默认 VMD 已应用确认的平滑设置，配置保存在 `rust_engine/vmd-smoothing-project.json`（全部骨骼、强度 0.6、半径 5、循环开启）；备份与校验记录见 `rust_engine/VMD_SMOOTHING.md`。
+
+*本索引文件由子代理全库代码扫描与架构分析自动化生成，后续按实际修改补充。*
