@@ -32,6 +32,10 @@ public final class LivingEntityModelStateHelper {
         }
 
         @Override
+        public void setTailPhysicsOptions(long modelHandle, boolean idleLift, boolean movementBoost) {
+        }
+
+        @Override
         public void setEyeAngle(long modelHandle, float eyeX, float eyeY) {
         }
     };

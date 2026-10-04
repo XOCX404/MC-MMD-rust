@@ -531,6 +531,11 @@ public final class NativeRuntimeBridge implements
     }
 
     @Override
+    public void setTailPhysicsOptions(long modelHandle, boolean idleLift, boolean movementBoost) {
+        nativeFunc().SetTailPhysicsOptions(modelHandle, idleLift, movementBoost);
+    }
+
+    @Override
     public void setEyeAngle(long modelHandle, float eyeX, float eyeY) {
         nativeFunc().SetEyeAngle(modelHandle, eyeX, eyeY);
     }

@@ -78,7 +78,8 @@ impl MmdJointData {
             pmx_joint.position_spring,
             pmx_joint.rotation_spring,
         );
-        let _clamped_wide_root = apply_wide_skirt_root_fallback(&mut parameters, pmx_rb_a, pmx_rb_b);
+        let _clamped_wide_root =
+            apply_wide_skirt_root_fallback(&mut parameters, pmx_rb_a, pmx_rb_b);
         apply_wide_skirt_chain_fallback(&mut parameters, pmx_rb_a, pmx_rb_b);
 
         let clamped_wide_hair_root =
@@ -170,7 +171,7 @@ impl MmdJointData {
 
 /// 将 PMX 关节欧拉角转换为 Bullet setEulerZYX 等价旋转。
 fn joint_rotation(rotation: [f32; 3]) -> Quat {
-    // 刚体形状与 6DOF frame 必须共享同一旋转约定。
+    // 关节使用 Bullet Z-Y-X；不能套用刚体的 Y-X-Z 顺序。
     mmd_physics_rotation(rotation)
 }
 

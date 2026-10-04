@@ -352,6 +352,20 @@ void bw_rigid_body_get_transform(BW_RigidBody* rb, float* matrix4x4) {
     bt_to_mat4(t, matrix4x4);
 }
 
+void bw_world_refresh_body_collision_filter(BW_World* w, BW_RigidBody* rb) {
+    if (!w || !rb) return;
+    btBroadphaseProxy* proxy = ((btRigidBody*)rb)->getBroadphaseHandle();
+    if (!proxy) return;
+    // 禁碰标志不会主动释放旧接触流形；旧流形仍会被求解器遍历。
+    w->broadphase->getOverlappingPairCache()->cleanProxyFromPairs(proxy, w->dispatcher);
+}
+
+void bw_rigid_body_get_simulation_transform(BW_RigidBody* rb, float* matrix4x4) {
+    if (!rb || !matrix4x4) return;
+    // 接触与约束使用求解姿态；MotionState 是渲染插值姿态。
+    bt_to_mat4(((btRigidBody*)rb)->getCenterOfMassTransform(), matrix4x4);
+}
+
 void bw_rigid_body_set_transform(BW_RigidBody* rb, const float* matrix4x4) {
     if (!rb || !matrix4x4) return;
     btRigidBody* body = (btRigidBody*)rb;

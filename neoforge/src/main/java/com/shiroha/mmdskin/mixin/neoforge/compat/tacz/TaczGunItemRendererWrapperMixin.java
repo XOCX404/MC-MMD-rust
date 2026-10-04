@@ -17,7 +17,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Pseudo
 @Mixin(targets = "com.tacz.guns.client.renderer.item.GunItemRendererWrapper", remap = false)
 public abstract class TaczGunItemRendererWrapperMixin {
-    @Inject(method = "renderFirstPerson(Lnet/minecraft/client/player/LocalPlayer;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IF)V", at = @At("HEAD"), remap = false, require = 0)
+    // 旧版在本类实现外层入口；1.1.8-r2 改为内层入口，外层由父类提供。
+    @Inject(method = {
+            "renderFirstPerson(Lnet/minecraft/client/player/LocalPlayer;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IF)V",
+            "renderFirstPersonInner(Lnet/minecraft/client/player/LocalPlayer;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IF)V"
+    }, at = @At("HEAD"), remap = false, require = 0)
     private void mmdskin$beginTaczFrame(LocalPlayer player, ItemStack stack, ItemDisplayContext context,
                                         PoseStack poseStack, MultiBufferSource buffers, int light, float partialTick,
                                         CallbackInfo ci) {
@@ -26,7 +30,11 @@ public abstract class TaczGunItemRendererWrapperMixin {
         TaczFirstPersonPostRenderer.ensureDeferredAtTaczHead(player, stack, partialTick, light);
     }
 
-    @Inject(method = "renderFirstPerson(Lnet/minecraft/client/player/LocalPlayer;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IF)V", at = @At("RETURN"), remap = false, require = 0)
+    // 两个已知版本各命中本类的一个入口，完成左右手采样后统一提交。
+    @Inject(method = {
+            "renderFirstPerson(Lnet/minecraft/client/player/LocalPlayer;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IF)V",
+            "renderFirstPersonInner(Lnet/minecraft/client/player/LocalPlayer;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IF)V"
+    }, at = @At("RETURN"), remap = false, require = 0)
     private void mmdskin$finishTaczFrame(LocalPlayer player, ItemStack stack, ItemDisplayContext context,
                                          PoseStack poseStack, MultiBufferSource buffers, int light, float partialTick,
                                          CallbackInfo ci) {

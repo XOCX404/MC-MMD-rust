@@ -44,11 +44,7 @@ pub fn effective_collision_shape_size_with_static_scale(
         RigidBodyShape::Sphere => [base_radius * scale, pmx_rb.size[1], pmx_rb.size[2]],
         RigidBodyShape::Capsule => [base_radius * scale, pmx_rb.size[1], pmx_rb.size[2]],
         // PMX 箱体的局部 Y 是人体碰撞体高度，保留高度只收窄横截面。
-        RigidBodyShape::Box => [
-            base_radius * scale,
-            pmx_rb.size[1],
-            pmx_rb.size[2] * scale,
-        ],
+        RigidBodyShape::Box => [base_radius * scale, pmx_rb.size[1], pmx_rb.size[2] * scale],
     }
 }
 
@@ -65,7 +61,10 @@ fn is_under_sized_leg_collider(body: &PmxRigidBody) -> bool {
     ];
     let local = body.local_name.to_lowercase();
     let universal = body.universal_name.to_lowercase();
-    body.size[0] < 0.45 && LEG_PARTS.iter().any(|p| local.contains(p) || universal.contains(p))
+    body.size[0] < 0.45
+        && LEG_PARTS
+            .iter()
+            .any(|p| local.contains(p) || universal.contains(p))
 }
 
 /// 按 PMX 的部位、碰撞组和关节用途识别需要收窄的人体碰撞体。
@@ -189,24 +188,111 @@ pub(super) fn is_skirt_or_lower_garment(body: &PmxRigidBody) -> bool {
     let local = body.local_name.to_lowercase();
     let universal = body.universal_name.to_lowercase();
     // 尾巴具有独立动态特性，必须排除在裙摆下装分类之外
-    if is_tail_dynamic_part(body) {
+    if is_tail_dynamic_part(body) || has_non_skirt_local_semantics(&local) {
         return false;
     }
-    PART_NAMES
-        .iter()
-        .any(|part| local.contains(part) || universal.contains(part))
+    PART_NAMES.iter().any(|part| local.contains(part))
+        || PART_NAMES.iter().any(|part| universal.contains(part))
+}
+
+fn has_non_skirt_local_semantics(name: &str) -> bool {
+    const NON_SKIRT_PARTS: &[&str] = &[
+        "胸",
+        "乳",
+        "バスト",
+        "おっぱい",
+        "breast",
+        "bust",
+        "chest",
+        "shoe",
+        "shoes",
+        "heel",
+        "靴",
+        "くつ",
+        "鞋",
+        "accessory",
+        "accessories",
+        "アクセサリー",
+        "装飾",
+        "配件",
+        "附件",
+        "飾",
+        "饰",
+        "tassel",
+        "穗",
+        "穂",
+        "房穗",
+        "リボン",
+        "ribbon",
+        "bow",
+        "蝴蝶结",
+        "蝴蝶結",
+        "袖",
+        "sleeve",
+        "手臂",
+        "上臂",
+        "前臂",
+        "腕",
+        "upperarm",
+        "forearm",
+        "髪",
+        "髮",
+        "头发",
+        "頭髪",
+        "hair",
+    ];
+    NON_SKIRT_PARTS.iter().any(|part| name.contains(part)) || has_arm_token(name)
+}
+
+fn has_arm_token(name: &str) -> bool {
+    name.match_indices("arm").any(|(index, token)| {
+        let before = name[..index].chars().next_back();
+        let after = name[index + token.len()..].chars().next();
+        let is_separator =
+            |ch: Option<char>| ch.map_or(true, |value| !value.is_ascii_alphanumeric());
+        is_separator(before) || is_separator(after)
+    })
 }
 
 /// 尾巴是独立动态链，不能并入裙摆分类，否则跨部位碰撞无法单独诊断和过滤。
 /// 静态跟骨刚体和身体阻挡体（blocker）不属于动态尾巴链。
 pub(super) fn is_tail_dynamic_part(body: &PmxRigidBody) -> bool {
-    if body.mode == RigidBodyMode::Static
-        || body.local_name.to_lowercase().contains("blocker")
-        || body.universal_name.to_lowercase().contains("blocker")
+    classify_tail_dynamic(
+        body.mode != RigidBodyMode::Static,
+        [&body.local_name, &body.universal_name, ""],
+    )
+}
+
+pub(super) fn classify_tail_dynamic(dynamic: bool, names: [&str; 3]) -> bool {
+    if !dynamic {
+        return false;
+    }
+    const EXCLUDED: &[&str] = &[
+        "ponytail",
+        "twintail",
+        "馬尾",
+        "马尾",
+        "ポニーテール",
+        "ツインテール",
+        "tail_hair",
+        "tailhair",
+        "blocker",
+    ];
+    const TAIL_PARTS: &[&str] = &["tail", "尻尾", "しっぽ", "尾巴", "尾"];
+    let normalized = names.map(str::to_lowercase);
+    if EXCLUDED
+        .iter()
+        .any(|part| normalized.iter().any(|name| name.contains(part)))
     {
         return false;
     }
-    const NOT_TAIL_NAMES: &[&str] = &[
+    TAIL_PARTS
+        .iter()
+        .any(|part| normalized.iter().any(|name| name.contains(part)))
+}
+
+fn is_legacy_tail_name(name: &str) -> bool {
+    const EXCLUDED: &[&str] = &[
         "馬尾",
         "马尾",
         "ツインテール",
@@ -216,24 +302,20 @@ pub(super) fn is_tail_dynamic_part(body: &PmxRigidBody) -> bool {
         "tail_hair",
         "tailhair",
     ];
-    const TAIL_NAMES: &[&str] = &["tail", "尻尾", "しっぽ", "尾巴", "尾"];
-    let local = body.local_name.to_lowercase();
-    let universal = body.universal_name.to_lowercase();
-    if NOT_TAIL_NAMES
-        .iter()
-        .any(|not_tail| local.contains(not_tail) || universal.contains(not_tail))
-    {
-        return false;
-    }
-    TAIL_NAMES
-        .iter()
-        .any(|part| local.contains(part) || universal.contains(part))
+    const TAIL_PARTS: &[&str] = &["tail", "尻尾", "しっぽ", "尾巴", "尾"];
+    let name = name.to_lowercase();
+    !EXCLUDED.iter().any(|part| name.contains(part))
+        && TAIL_PARTS.iter().any(|part| name.contains(part))
 }
 
 fn collision_pair_is_enabled(a: &PmxRigidBody, b: &PmxRigidBody) -> bool {
     // 静态骨盆与上大腿碰撞体与动态裙摆始终保持双向碰撞连接；小腿/膝盖等保留 PMX 作者配置的掩码
-    if (a.mode == RigidBodyMode::Static && is_pelvis_or_thigh_collider(a) && is_skirt_or_lower_garment(b))
-        || (b.mode == RigidBodyMode::Static && is_pelvis_or_thigh_collider(b) && is_skirt_or_lower_garment(a))
+    if (a.mode == RigidBodyMode::Static
+        && is_pelvis_or_thigh_collider(a)
+        && is_skirt_or_lower_garment(b))
+        || (b.mode == RigidBodyMode::Static
+            && is_pelvis_or_thigh_collider(b)
+            && is_skirt_or_lower_garment(a))
     {
         return true;
     }
@@ -274,7 +356,7 @@ pub enum PhysicsMode {
     FollowBone,
     /// 完全物理驱动
     Physics,
-    /// 物理驱动但位置跟随骨骼（仅旋转由物理控制）
+    /// 动态刚体；回写骨骼时保留动画层级位置，仅使用物理旋转。
     PhysicsWithBone,
 }
 
@@ -296,6 +378,12 @@ impl From<RigidBodyMode> for PhysicsMode {
 pub struct MmdRigidBodyData {
     /// 刚体名称
     pub name: String,
+    /// 刚体英文名称，用于尾巴分类回退。
+    pub universal_name: String,
+    /// 构建时缓存的尾巴动态体分类。
+    pub is_tail_dynamic: bool,
+    /// 默认关闭选项时保留旧版本地名分类。
+    pub is_tail_dynamic_legacy: bool,
     /// 关联骨骼索引
     pub bone_index: i32,
     /// 物理模式
@@ -316,7 +404,7 @@ pub struct MmdRigidBodyData {
     pub raw_rotation: [f32; 3],
     /// 送入欧拉角构造前的弧度值。
     pub decoded_rotation: [f32; 3],
-    /// PMX 原始形状尺寸。
+    /// 实际送入 Bullet 的形状尺寸。
     pub shape_size: [f32; 3],
     /// 便于 JNI 日志稳定输出的形状名称。
     pub shape_name: &'static str,
@@ -342,8 +430,7 @@ impl MmdRigidBodyData {
         let physics_mode = PhysicsMode::from(pmx_rb.mode);
 
         let decoded_rotation = normalize_rigid_body_rotation(pmx_rb.rotation);
-        // PMX 刚体与关节都按 Bullet setEulerZYX 的 X-Y-Z 输入语义构造，
-        // 避免多轴旋转时碰撞形状与约束轴落入不同的局部坐标系。
+        // PMX 刚体采用 Y-X-Z；关节采用 Bullet Z-Y-X，局部 frame 负责衔接。
         let rotation = rigid_body_rotation(decoded_rotation);
 
         let position = Vec3::new(pmx_rb.position[0], pmx_rb.position[1], pmx_rb.position[2]);
@@ -363,6 +450,9 @@ impl MmdRigidBodyData {
 
         Self {
             name: pmx_rb.local_name.clone(),
+            universal_name: pmx_rb.universal_name.clone(),
+            is_tail_dynamic: is_tail_dynamic_part(pmx_rb),
+            is_tail_dynamic_legacy: is_legacy_tail_name(&pmx_rb.local_name),
             bone_index: pmx_rb.bone_index,
             physics_mode,
             group: pmx_rb.group,
@@ -375,7 +465,7 @@ impl MmdRigidBodyData {
             raw_position: pmx_rb.position,
             raw_rotation: pmx_rb.rotation,
             decoded_rotation,
-            shape_size: pmx_rb.size,
+            shape_size,
             shape_name: rigid_body_shape_name(pmx_rb.shape),
             collision_half_extents: collision_half_extents(pmx_rb.shape, shape_size),
             bullet_body: None,
@@ -470,7 +560,9 @@ pub(super) fn mmd_physics_rotation(rotation: [f32; 3]) -> Quat {
 }
 
 fn rigid_body_rotation(rotation: [f32; 3]) -> Quat {
-    mmd_physics_rotation(rotation)
+    Quat::from_rotation_y(rotation[1])
+        * Quat::from_rotation_x(rotation[0])
+        * Quat::from_rotation_z(rotation[2])
 }
 
 fn rigid_body_shape_name(shape: RigidBodyShape) -> &'static str {
@@ -524,21 +616,21 @@ mod tests {
     }
 
     #[test]
-    fn rigid_body_rotation_matches_bullet_zyx_matrix_composition() {
+    fn rigid_body_rotation_matches_pmx_yxz_composition() {
         let [x, y, z] = [0.31, -0.47, 0.83];
         let expected =
-            Quat::from_rotation_z(z) * Quat::from_rotation_y(y) * Quat::from_rotation_x(x);
+            Quat::from_rotation_y(y) * Quat::from_rotation_x(x) * Quat::from_rotation_z(z);
         assert!(rigid_body_rotation([x, y, z]).abs_diff_eq(expected, 1e-6));
     }
 
     #[test]
-    fn decoded_exported_rotation_uses_the_same_frame_as_pmx_joint() {
+    fn decoded_exported_rotation_preserves_pmx_body_rotation_order() {
         let radians = [0.355_930_42, -0.000_011_105_393, std::f32::consts::PI];
         let export_scale = (180.0_f32 / std::f32::consts::PI).powi(2);
         let encoded = radians.map(|value| value * export_scale);
-        let expected = Quat::from_rotation_z(radians[2])
-            * Quat::from_rotation_y(radians[1])
-            * Quat::from_rotation_x(radians[0]);
+        let expected = Quat::from_rotation_y(radians[1])
+            * Quat::from_rotation_x(radians[0])
+            * Quat::from_rotation_z(radians[2]);
 
         assert!(
             rigid_body_rotation(normalize_rigid_body_rotation(encoded)).abs_diff_eq(expected, 1e-5)
@@ -736,5 +828,25 @@ mod tests {
                 "name={name} must not be skirt"
             );
         }
+    }
+
+    #[test]
+    fn tail_name_classifier_uses_fallback_and_prioritizes_exclusions() {
+        let cases = [
+            (["Body", "", "Tail_03"], true),
+            (["body", "尻尾_02", ""], true),
+            (["PonyTail_01", "", "尾巴"], false),
+            (["body", "尾巴", "TwinTail_02"], false),
+            (["Tail_Blocker", "", "Tail"], false),
+            (["Tail_01", "", ""], true),
+        ];
+        for (names, expected) in cases {
+            assert_eq!(
+                super::classify_tail_dynamic(true, names),
+                expected,
+                "{names:?}"
+            );
+        }
+        assert!(!super::classify_tail_dynamic(false, ["Tail_01", "", ""]));
     }
 }

@@ -6,6 +6,7 @@ pub(crate) mod body_collider_synthesis;
 pub mod bullet_ffi;
 pub mod collision_topology;
 pub mod config;
+mod embedded_body_contacts;
 mod hair_parameters;
 mod initialization_diagnostics;
 mod joint_parameters;
@@ -15,6 +16,7 @@ mod mmd_physics;
 mod mmd_rigid_body;
 mod physics_diagnostics;
 pub(crate) mod skirt_cross_joints;
+mod tail_forces;
 
 /// Z 轴翻转变换（左手 ↔ 右手坐标系转换，与 saba InvZ 一致）
 ///

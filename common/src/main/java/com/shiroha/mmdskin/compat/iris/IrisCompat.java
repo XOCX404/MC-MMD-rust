@@ -76,6 +76,7 @@ public class IrisCompat {
     }
 
     public static void reset() {
+        IrisToonCompat.reset();
         irisPresent = null;
         isShaderPackInUseMethod = null;
         irisApiInstance = null;

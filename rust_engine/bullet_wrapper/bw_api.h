@@ -96,6 +96,8 @@ void bw_world_destroy(BW_World* world);
 void bw_world_step(BW_World* world, float dt, int max_substeps, float fixed_dt);
 /* 仅更新宽相/窄相接触，不推进时间、不执行约束或接触求解。 */
 void bw_world_detect_collisions(BW_World* world);
+/* 更改碰撞过滤后释放旧窄相算法与流形，避免继续求解旧接触。 */
+void bw_world_refresh_body_collision_filter(BW_World* world, BW_RigidBody* rb);
 void bw_world_set_gravity(BW_World* world, float x, float y, float z);
 void bw_world_add_rigid_body(BW_World* world, BW_RigidBody* rb, int group, int mask);
 void bw_world_remove_rigid_body(BW_World* world, BW_RigidBody* rb);
@@ -116,6 +118,7 @@ void bw_shape_destroy(BW_Shape* shape);
 BW_RigidBody* bw_rigid_body_create(const BW_RigidBodyInfo* info);
 void bw_rigid_body_destroy(BW_RigidBody* rb);
 void bw_rigid_body_get_transform(BW_RigidBody* rb, float* matrix4x4);
+void bw_rigid_body_get_simulation_transform(BW_RigidBody* rb, float* matrix4x4);
 void bw_rigid_body_set_transform(BW_RigidBody* rb, const float* matrix4x4);
 void bw_rigid_body_set_kinematic_target(BW_RigidBody* rb, const float* matrix4x4);
 void bw_rigid_body_get_position(BW_RigidBody* rb, float* x, float* y, float* z);

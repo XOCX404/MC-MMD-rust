@@ -14,6 +14,7 @@ use mmd::pmx::joint::{Joint as PmxJoint, JointType};
 use mmd::pmx::rigid_body::{RigidBody as PmxRigidBody, RigidBodyMode};
 
 use super::body_collider_synthesis::has_skirt_rigid_bodies;
+use super::mmd_rigid_body::is_skirt_or_lower_garment;
 
 /// 裙摆横向连接允许的相对位移容差（单位：MMD 局部单位）。
 pub const SKIRT_CROSS_LINEAR_LIMIT: [f32; 3] = [-0.06, -0.06, -0.06];
@@ -42,13 +43,9 @@ pub fn synthesize_missing_skirt_cross_joints(
     let mut is_skirt = vec![false; rigid_bodies.len()];
     let mut skirt_count = 0;
     for (i, rb) in rigid_bodies.iter().enumerate() {
-        if rb.mode != RigidBodyMode::Static {
-            let lower = rb.local_name.to_lowercase();
-            let universal = rb.universal_name.to_lowercase();
-            if is_skirt_name(&lower) || is_skirt_name(&universal) {
-                is_skirt[i] = true;
-                skirt_count += 1;
-            }
+        if rb.mode != RigidBodyMode::Static && is_skirt_or_lower_garment(rb) {
+            is_skirt[i] = true;
+            skirt_count += 1;
         }
     }
 
@@ -138,7 +135,8 @@ pub fn synthesize_missing_skirt_cross_joints(
             // 检查原模型中是否已配置该横向刚体对的关节
             let has_joint = existing_joints.iter().any(|j| {
                 (j.rigid_body_a_index == a_idx as i32 && j.rigid_body_b_index == b_idx as i32)
-                    || (j.rigid_body_a_index == b_idx as i32 && j.rigid_body_b_index == a_idx as i32)
+                    || (j.rigid_body_a_index == b_idx as i32
+                        && j.rigid_body_b_index == a_idx as i32)
             });
 
             if !has_joint {
@@ -173,7 +171,10 @@ pub fn synthesize_missing_skirt_cross_joints(
 
                 let pmx_joint = PmxJoint {
                     local_name: format!("Synthesized_Skirt_Cross_L{}_{}_{}", l_idx, a_idx, b_idx),
-                    universal_name: format!("Synthesized_Skirt_Cross_L{}_{}_{}", l_idx, a_idx, b_idx),
+                    universal_name: format!(
+                        "Synthesized_Skirt_Cross_L{}_{}_{}",
+                        l_idx, a_idx, b_idx
+                    ),
                     type_: JointType::Spring6DOF,
                     rigid_body_a_index: a_idx as i32,
                     rigid_body_b_index: b_idx as i32,
@@ -194,9 +195,6 @@ pub fn synthesize_missing_skirt_cross_joints(
     synthesized
 }
 
-fn is_skirt_name(name: &str) -> bool {
-    const SKIRT_PARTS: &[&str] = &[
-        "裙", "スカート", "skirt", "petticoat", "下装", "下衣", "裾", "摆", "衣摆", "后摆", "下摆", "cloak", "cape", "coat", "コート",
-    ];
-    SKIRT_PARTS.iter().any(|part| name.contains(part))
-}
+#[cfg(test)]
+#[path = "skirt_cross_joints_tests.rs"]
+mod tests;

@@ -6,6 +6,7 @@ import com.mojang.blaze3d.vertex.BufferUploader;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.shiroha.mmdskin.config.ConfigManager;
 import com.shiroha.mmdskin.compat.iris.IrisCompat;
+import com.shiroha.mmdskin.compat.iris.IrisToonCompat;
 import com.shiroha.mmdskin.render.bootstrap.ClientRenderRuntime;
 import com.shiroha.mmdskin.render.shader.ToonShaderCpu;
 import com.shiroha.mmdskin.render.shader.ToonRenderHelper;
@@ -149,7 +150,8 @@ final class OpenGlModelRenderer {
     }
 
     private static boolean initializeToonShaderIfNeeded() {
-        if (!ConfigManager.isToonRenderingEnabled()) {
+        // 阴影通道必须保留 Iris 的深度输出程序，跳过 Toon 与描边。
+        if (IrisCompat.isRenderingShadows() || !ConfigManager.isToonRenderingEnabled()) {
             return false;
         }
 
@@ -166,7 +168,7 @@ final class OpenGlModelRenderer {
             }
         }
 
-        return OpenGlModelInstance.toonShaderCpu.isInitialized();
+        return IrisToonCompat.prepare(OpenGlModelInstance.toonShaderCpu);
     }
 
     private static void updateMaterialMorphIfDirty(OpenGlModelInstance target) {
@@ -222,7 +224,8 @@ final class OpenGlModelRenderer {
 
     private static boolean bindActiveShader(OpenGlModelInstance target, PoseStack deliverStack) {
         int shaderPipelineMode = ClientRenderRuntime.get().renderBackendRegistry().shaderPipelineMode();
-        if (shaderPipelineMode == 0) {
+        // 自定义 MMD shader 模式也不能覆盖 Iris 的阴影程序。
+        if (IrisCompat.isRenderingShadows() || shaderPipelineMode == 0) {
             ShaderInstance mcShader = RenderSystem.getShader();
             if (mcShader == null) {
                 return false;
@@ -519,73 +522,75 @@ final class OpenGlModelRenderer {
         RenderSystem.blendEquation(GL46C.GL_FUNC_ADD);
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
 
-        if (IrisCompat.isIrisShaderActive()) {
-            ShaderInstance irisShader = RenderSystem.getShader();
+        ShaderInstance irisShader = IrisCompat.isIrisShaderActive() ? RenderSystem.getShader() : null;
+        try {
             if (irisShader != null) {
                 target.setUniforms(irisShader, deliverStack);
                 irisShader.apply();
             }
-        }
 
-        long currentRevision = target.nativeUpdateRevisionValue();
-        if (target.lastPositionRevision != currentRevision) {
-            var nativeBackend = target.nativeBackendPort();
-            long modelHandle = target.nativeModelHandle();
-            int posAndNorSize = target.vertexCount * 12;
-            long posData = nativeBackend.getPositionDataAddress(modelHandle);
-            nativeBackend.copyNativeDataToBuffer(target.posBuffer, posData, posAndNorSize);
-            long normalData = nativeBackend.getNormalDataAddress(modelHandle);
-            nativeBackend.copyNativeDataToBuffer(target.norBuffer, normalData, posAndNorSize);
+            long currentRevision = target.nativeUpdateRevisionValue();
+            if (target.lastPositionRevision != currentRevision) {
+                var nativeBackend = target.nativeBackendPort();
+                long modelHandle = target.nativeModelHandle();
+                int posAndNorSize = target.vertexCount * 12;
+                long posData = nativeBackend.getPositionDataAddress(modelHandle);
+                nativeBackend.copyNativeDataToBuffer(target.posBuffer, posData, posAndNorSize);
+                long normalData = nativeBackend.getNormalDataAddress(modelHandle);
+                nativeBackend.copyNativeDataToBuffer(target.norBuffer, normalData, posAndNorSize);
 
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.vertexBufferObject);
-            GL46C.glBufferSubData(GL46C.GL_ARRAY_BUFFER, 0, target.posBuffer);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.normalBufferObject);
-            GL46C.glBufferSubData(GL46C.GL_ARRAY_BUFFER, 0, target.norBuffer);
-            if (target.hasUvMorph) {
-                int uv0Size = target.vertexCount * 8;
-                long uv0Data = nativeBackend.getUvDataAddress(modelHandle);
-                nativeBackend.copyNativeDataToBuffer(target.uv0Buffer, uv0Data, uv0Size);
-                GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.texcoordBufferObject);
-                GL46C.glBufferSubData(GL46C.GL_ARRAY_BUFFER, 0, target.uv0Buffer);
+                GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.vertexBufferObject);
+                GL46C.glBufferSubData(GL46C.GL_ARRAY_BUFFER, 0, target.posBuffer);
+                GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.normalBufferObject);
+                GL46C.glBufferSubData(GL46C.GL_ARRAY_BUFFER, 0, target.norBuffer);
+                if (target.hasUvMorph) {
+                    int uv0Size = target.vertexCount * 8;
+                    long uv0Data = nativeBackend.getUvDataAddress(modelHandle);
+                    nativeBackend.copyNativeDataToBuffer(target.uv0Buffer, uv0Data, uv0Size);
+                    GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.texcoordBufferObject);
+                    GL46C.glBufferSubData(GL46C.GL_ARRAY_BUFFER, 0, target.uv0Buffer);
+                }
+
+                long vertexUploadBytes = (long) posAndNorSize * 2L
+                        + (target.hasUvMorph ? (long) target.vertexCount * 8L : 0L);
+                RenderPerformanceProfiler.get().recordTransfer(TransferKind.CPU_VERTEX, vertexUploadBytes);
+
+                target.lastPositionRevision = currentRevision;
+            } else {
+                long avoidedBytes = (long) target.vertexCount * 12L * 2L
+                        + (target.hasUvMorph ? (long) target.vertexCount * 8L : 0L);
+                RenderPerformanceProfiler.get().recordAvoidedUpload(TransferKind.CPU_VERTEX, avoidedBytes);
             }
 
-            long vertexUploadBytes = (long) posAndNorSize * 2L
-                    + (target.hasUvMorph ? (long) target.vertexCount * 8L : 0L);
-            RenderPerformanceProfiler.get().recordTransfer(TransferKind.CPU_VERTEX, vertexUploadBytes);
+            target.modelViewMatBuff.clear();
+            target.projMatBuff.clear();
+            target.composeModelViewMatrix(deliverStack).get(target.modelViewMatBuff);
+            RenderSystem.getProjectionMatrix().get(target.projMatBuff);
+            GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, target.activeIndexBufferObject);
 
-            target.lastPositionRevision = currentRevision;
-        } else {
-            long avoidedBytes = (long) target.vertexCount * 12L * 2L
-                    + (target.hasUvMorph ? (long) target.vertexCount * 8L : 0L);
-            RenderPerformanceProfiler.get().recordAvoidedUpload(TransferKind.CPU_VERTEX, avoidedBytes);
+            renderToonMainPass(target, minecraft, lightIntensity);
+
+            if (OpenGlModelInstance.toonConfig.isOutlineEnabled()) {
+                renderOutlinePass(target, minecraft);
+            }
+        } finally {
+            // 清理 Iris 的各缓冲混合覆盖，再恢复原版状态。
+            if (irisShader != null) irisShader.clear();
+            GL46C.glBindVertexArray(0);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, 0);
+            GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, 0);
+            GL46C.glUseProgram(0);
+            RenderSystem.activeTexture(GL46C.GL_TEXTURE0);
+
+            RenderSystem.enableCull();
+            GL46C.glCullFace(GL46C.GL_BACK);
+            RenderSystem.depthMask(true);
+            RenderSystem.enableDepthTest();
+            RenderSystem.blendEquation(GL46C.GL_FUNC_ADD);
+            RenderSystem.defaultBlendFunc();
+            RenderSystem.disableBlend();
+            RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
         }
-
-        target.modelViewMatBuff.clear();
-        target.projMatBuff.clear();
-        target.composeModelViewMatrix(deliverStack).get(target.modelViewMatBuff);
-        RenderSystem.getProjectionMatrix().get(target.projMatBuff);
-        GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, target.activeIndexBufferObject);
-
-        renderToonMainPass(target, minecraft, lightIntensity);
-
-        if (OpenGlModelInstance.toonConfig.isOutlineEnabled()) {
-            renderOutlinePass(target, minecraft);
-        }
-
-        GL46C.glBindVertexArray(0);
-        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, 0);
-        GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, 0);
-        GL46C.glUseProgram(0);
-        RenderSystem.activeTexture(GL46C.GL_TEXTURE0);
-
-        RenderSystem.enableCull();
-        GL46C.glCullFace(GL46C.GL_BACK);
-        RenderSystem.depthMask(true);
-        RenderSystem.enableDepthTest();
-        RenderSystem.blendEquation(GL46C.GL_FUNC_ADD);
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.disableBlend();
-        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     private static void renderOutlinePass(OpenGlModelInstance target, Minecraft minecraft) {

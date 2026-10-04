@@ -1,6 +1,7 @@
 package com.shiroha.mmdskin.render.backend;
 
 import com.shiroha.mmdskin.bridge.runtime.NativeRenderBackendPort;
+import com.shiroha.mmdskin.compat.iris.IrisCompat;
 import com.shiroha.mmdskin.config.ConfigManager;
 import com.shiroha.mmdskin.config.RuntimeConfigPortHolder;
 import com.shiroha.mmdskin.model.runtime.ModelInstance;
@@ -374,7 +375,14 @@ public abstract class BaseModelInstance implements ModelInstance {
 
     /** 1.21.1 将镜头视图与实体局部 PoseStack 分开维护，上传前必须重新组合。 */
     public final Matrix4f composeModelViewMatrix(PoseStack deliverStack) {
-        return RenderSystem.getModelViewMatrix().mul(deliverStack.last().pose(), composedModelViewMatrix);
+        return composeModelViewMatrix(RenderSystem.getModelViewMatrix(), deliverStack.last().pose(),
+                IrisCompat.isRenderingShadows(), composedModelViewMatrix);
+    }
+
+    static Matrix4f composeModelViewMatrix(Matrix4f cameraView, Matrix4f entityPose,
+                                           boolean shadowPass, Matrix4f destination) {
+        // Iris 阴影 PoseStack 已包含光源视图，不能再乘主相机视图。
+        return shadowPass ? destination.set(entityPose) : cameraView.mul(entityPose, destination);
     }
 
     protected void setupShaderUniforms(ShaderInstance shader, PoseStack deliverStack,
