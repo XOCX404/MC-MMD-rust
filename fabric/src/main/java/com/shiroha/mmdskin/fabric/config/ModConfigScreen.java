@@ -536,6 +536,38 @@ public class ModConfigScreen {
             .setSaveConsumer(value -> data.debugHudEnabled = value)
             .build());
 
+        debugCategory.addEntry(entryBuilder
+            .startBooleanToggle(Component.translatable("gui.mmdskin.mod_settings.debug_model_deformation_log"),
+                data.debugModelDeformationLog)
+            .setDefaultValue(false)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.debug_model_deformation_log.tooltip"))
+            .setSaveConsumer(value -> data.debugModelDeformationLog = value)
+            .build());
+
+        debugCategory.addEntry(entryBuilder
+            .startBooleanToggle(Component.translatable("gui.mmdskin.mod_settings.debug_side_physics_log"),
+                data.debugSidePhysicsLog)
+            .setDefaultValue(false)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.debug_side_physics_log.tooltip"))
+            .setSaveConsumer(value -> data.debugSidePhysicsLog = value)
+            .build());
+
+        debugCategory.addEntry(entryBuilder
+            .startBooleanToggle(Component.translatable("gui.mmdskin.mod_settings.debug_collision_mode_log"),
+                data.debugCollisionModeLog)
+            .setDefaultValue(false)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.debug_collision_mode_log.tooltip"))
+            .setSaveConsumer(value -> data.debugCollisionModeLog = value)
+            .build());
+
+        debugCategory.addEntry(entryBuilder
+            .startBooleanToggle(Component.translatable("gui.mmdskin.mod_settings.debug_outline_paper_doll_log"),
+                data.debugOutlinePaperDollLog)
+            .setDefaultValue(false)
+            .setTooltip(Component.translatable("gui.mmdskin.mod_settings.debug_outline_paper_doll_log.tooltip"))
+            .setSaveConsumer(value -> data.debugOutlinePaperDollLog = value)
+            .build());
+
         ConfigCategory vrCategory = builder.getOrCreateCategory(
             Component.translatable("gui.mmdskin.mod_settings.category.vr"));
 

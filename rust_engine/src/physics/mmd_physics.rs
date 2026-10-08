@@ -30,6 +30,7 @@ use super::tail_forces::TailForceState;
 mod body_contacts;
 mod diagnostics;
 mod garment_diagnostics;
+mod issue_diagnostics;
 mod motion_forces;
 
 pub use garment_diagnostics::{GarmentContactSnapshot, GarmentPhysicsSnapshot};
@@ -85,6 +86,10 @@ pub struct MMDPhysics {
     collision_filter_rejected_pairs: usize,
     /// 初始身体深嵌入触发的祖先躯干禁碰对数量。
     embedded_body_filtered_pairs: usize,
+    /// 裙摆碰撞组扩展的开放对与显式禁碰对数量。
+    garment_extension_pairs: usize,
+    garment_rejected_pairs: usize,
+    garment_forced_ignore_samples: Vec<(usize, usize)>,
     /// 当前模型刚体与关节拓扑的稳定签名。
     model_topology_signature: String,
     /// 每个物理实例独立的尾巴选项与闲置包络。
@@ -141,6 +146,9 @@ impl MMDPhysics {
             collision_filter_applied_pairs: 0,
             collision_filter_rejected_pairs: 0,
             embedded_body_filtered_pairs: 0,
+            garment_extension_pairs: 0,
+            garment_rejected_pairs: 0,
+            garment_forced_ignore_samples: Vec::new(),
             model_topology_signature: "fnv1a64:UNBUILT".to_owned(),
             tail_forces: TailForceState::default(),
         })
@@ -157,7 +165,10 @@ impl MMDPhysics {
         bone_transforms: &[Mat4],
     ) {
         let config = get_config();
+        let active_gravity_y = self.active_debug_config.gravity_y.get();
         self.active_debug_config = ActivePhysicsDebugConfig::from_config(&config);
+        // BulletWorld 已在 new() 按当时配置创建，构建快照保留它的真实重力值。
+        self.active_debug_config.gravity_y.set(active_gravity_y);
         self.collision_stability_mode = config.collision_stability_mode;
         self.model_topology_signature = model_topology_signature(pmx_rigid_bodies, pmx_joints);
 
@@ -171,6 +182,14 @@ impl MMDPhysics {
             config.collision_enabled,
             self.collision_stability_mode,
         );
+        self.garment_extension_pairs = garment_contact_plan.allowed_pairs.len();
+        self.garment_rejected_pairs = garment_contact_plan.forced_ignore_pairs.len();
+        self.garment_forced_ignore_samples = garment_contact_plan
+            .forced_ignore_pairs
+            .iter()
+            .copied()
+            .take(24)
+            .collect();
 
         // 预分配容量
         self.rigid_bodies.reserve(pmx_rigid_bodies.len());
@@ -740,6 +759,7 @@ impl MMDPhysics {
     /// 设置重力
     pub fn set_gravity(&self, x: f32, y: f32, z: f32) {
         self.world.set_gravity(x, y, z);
+        self.active_debug_config.gravity_y.set(y);
     }
 
     pub fn rigid_body_count(&self) -> usize {

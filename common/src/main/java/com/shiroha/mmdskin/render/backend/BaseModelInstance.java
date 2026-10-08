@@ -5,6 +5,7 @@ import com.shiroha.mmdskin.compat.iris.IrisCompat;
 import com.shiroha.mmdskin.player.render.PaperDollRenderScope;
 import com.shiroha.mmdskin.player.render.InventoryRenderScope;
 import com.shiroha.mmdskin.config.ConfigManager;
+import com.shiroha.mmdskin.debug.client.ModelIssueDiagnostics;
 import com.shiroha.mmdskin.config.RuntimeConfigPortHolder;
 import com.shiroha.mmdskin.model.runtime.ModelInstance;
 import com.shiroha.mmdskin.render.scene.RenderScene;
@@ -45,6 +46,7 @@ public abstract class BaseModelInstance implements ModelInstance {
     private String cachedModelName;
 
     protected long lastUpdateTime = -1;
+    private final ModelIssueDiagnostics issueDiagnostics = new ModelIssueDiagnostics();
 
     protected final Quaternionf tempQuat = new Quaternionf();
     private final Matrix4f composedModelViewMatrix = new Matrix4f();
@@ -278,6 +280,7 @@ public abstract class BaseModelInstance implements ModelInstance {
         RenderPerformanceProfiler.get().endTimer(RenderPerformanceProfiler.SECTION_NATIVE_MODEL_UPDATE, updateTimer);
         logRustDiagnostics();
         logPhysicsDiagnostic();
+        issueDiagnostics.sample(backendPort(), model, getModelName(), getClass().getSimpleName());
         nativeUpdateRevision.incrementAndGet();
         return true;
     }

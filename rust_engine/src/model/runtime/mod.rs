@@ -30,6 +30,7 @@ use crate::model::{MmdMaterial, RuntimeVertex, SubMesh, VertexWeight};
 
 mod animation;
 mod head_eye;
+mod issue_diagnostics;
 mod material_visibility;
 mod physics;
 mod render_data;

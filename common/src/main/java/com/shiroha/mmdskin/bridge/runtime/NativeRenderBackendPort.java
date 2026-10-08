@@ -28,6 +28,11 @@ public interface NativeRenderBackendPort extends NativeModelPort, NativeModelLoa
         return null;
     }
 
+    default String getIssueDebugDiagnostic(long modelHandle, int flags) {
+        // 无诊断能力的测试或替代后端保持兼容。
+        return null;
+    }
+
     default String takeRustLogs() {
         // Rust 日志是进程级队列，轻量测试后端无需实现。
         return null;

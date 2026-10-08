@@ -323,6 +323,9 @@ public class NativeFunc {
 
     public native int BatchGetSubMeshData(long model, java.nio.ByteBuffer buffer, boolean firstPersonView);
 
+    /** 只读问题诊断快照；flags 的低三位选择类别，0x100 请求静态详情。 */
+    public native String GetIssueDebugDiagnostic(long model, int flags);
+
     public native void SetPhysicsConfig(
         boolean enabled,
         float gravityY,
