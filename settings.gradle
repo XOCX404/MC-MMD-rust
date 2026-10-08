@@ -9,6 +9,11 @@ pluginManagement {
 			name = 'Fabric'
 			url = 'https://maven.fabricmc.net/'
 		}
+		// Loom 的插件依赖仍需 Forge 仓库。
+		maven {
+			name = 'Forge'
+			url = 'https://maven.minecraftforge.net/'
+		}
 		maven {
 			name = 'NeoForged'
 			url = 'https://maven.neoforged.net/releases'

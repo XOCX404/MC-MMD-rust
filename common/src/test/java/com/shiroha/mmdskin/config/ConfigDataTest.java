@@ -47,6 +47,24 @@ class ConfigDataTest {
                 new TestConfig(secondRoundTrip).getIssueDiagnosticFlags());
     }
 
+    @Test
+    void staticColliderScalePersistsThroughConfigProviderAndSnapshot(@TempDir Path configDir) {
+        ConfigData data = new ConfigData();
+        data.physicsStaticColliderScale = 1.23f;
+        data.save(configDir);
+
+        ConfigData loaded = ConfigData.load(configDir);
+        TestConfig provider = new TestConfig(loaded);
+        assertEquals(1.23f, provider.getPhysicsStaticColliderScale(), 0.0001f);
+
+        ConfigManager.init(provider);
+        try {
+            assertEquals(1.23f, PhysicsConfigSnapshot.fromConfigManager().staticColliderScale(), 0.0001f);
+        } finally {
+            ConfigManager.init(null);
+        }
+    }
+
     private static final class TestConfig extends AbstractMmdSkinConfig {
         private TestConfig(ConfigData data) { super(data); }
 

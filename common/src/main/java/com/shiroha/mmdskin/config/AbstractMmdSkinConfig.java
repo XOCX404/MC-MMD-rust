@@ -46,6 +46,7 @@ public abstract class AbstractMmdSkinConfig implements ConfigManager.IConfigProv
     @Override public float getPhysicsInertiaStrength() { return data.physicsInertiaStrength; }
     @Override public float getPhysicsMaxLinearVelocity() { return data.physicsMaxLinearVelocity; }
     @Override public float getPhysicsMaxAngularVelocity() { return data.physicsMaxAngularVelocity; }
+    @Override public float getPhysicsStaticColliderScale() { return data.physicsStaticColliderScale; }
     @Override public boolean isPhysicsJointsEnabled() { return data.physicsJointsEnabled; }
     @Override public boolean isPhysicsKinematicFilter() { return data.physicsKinematicFilter; }
     @Override public boolean isPhysicsCollisionEnabled() { return data.physicsCollisionEnabled; }

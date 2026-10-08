@@ -165,27 +165,7 @@ public final class PlayerReplacementListEntry extends AbstractConfigListEntry<St
     @Override
     public void save() {
         ModelSelectorConfig config = ModelSelectorConfig.getInstance();
-        if (UIConstants.DEFAULT_MODEL_NAME.equals(value) || value.isBlank()) {
-            // 清理对应键
-            if (uuid != null) {
-                config.removePlayerModelByUuid(uuid);
-            }
-            if (playerName != null && !playerName.isBlank()) {
-                config.removePlayerModel(playerName);
-            }
-        } else {
-            if (bindByUuid && uuid != null) {
-                config.setPlayerModelByUuid(uuid, value);
-                if (playerName != null && !playerName.isBlank()) {
-                    config.removePlayerModel(playerName);
-                }
-            } else if (playerName != null && !playerName.isBlank()) {
-                config.setPlayerModel(playerName, value);
-                if (uuid != null) {
-                    config.removePlayerModelByUuid(uuid);
-                }
-            }
-        }
+        config.setPlayerModelBinding(uuid, playerName, bindByUuid, value);
         originalValue = value;
         originalBindByUuid = bindByUuid;
         updateButtons();
