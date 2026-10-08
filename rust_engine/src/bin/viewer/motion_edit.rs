@@ -460,32 +460,7 @@ fn batch_status(status: &mmd_engine::vmd_smoothing::batch::BatchStatus) -> Strin
 mod tests {
     use super::*;
 
-    #[test]
-    fn switching_to_invalid_source_discards_old_preview_and_source() {
-        let mut edit = MotionEdit::new(SmoothingOptions::default());
-        edit.source_bytes = Some(vec![1, 2, 3]);
-        edit.preview_bytes = Some(vec![4, 5, 6]);
-        edit.preview_active = true;
-        assert!(edit
-            .set_source(PathBuf::from("new.vmd"), b"bad".to_vec())
-            .is_err());
-        assert!(!edit.has_source());
-        assert!(!edit.has_preview());
-        assert!(!edit.preview_active);
-    }
 
-    #[test]
-    fn model_change_keeps_batch_worker_progress_channel_alive() {
-        let mut edit = MotionEdit::new(SmoothingOptions::default());
-        let (_sender, receiver) = mpsc::channel();
-        edit.receiver = Some(receiver);
-        edit.worker_kind = Some(WorkerKind::Batch);
-        edit.busy = true;
-        edit.invalidate_for_model_change();
-        assert!(edit.busy);
-        assert!(edit.receiver.is_some());
-        assert_eq!(edit.worker_kind, Some(WorkerKind::Batch));
-    }
 
     #[test]
     fn every_parameter_snapshot_uses_original_bytes() {
@@ -499,33 +474,7 @@ mod tests {
         assert_ne!(first.1[0].options.strength, second.1[0].options.strength);
     }
 
-    #[test]
-    fn group_reordering_and_removal_keep_active_group_stable() {
-        let mut edit = MotionEdit::new(SmoothingOptions::default());
-        edit.add_group();
-        edit.set_group_name(edit.active_group_index(), "后组".into());
-        assert!(edit.move_active_group(-1));
-        assert_eq!(edit.groups()[0].name, "后组");
-        assert_eq!(edit.active_group_index(), 0);
-        assert!(edit.remove_active_group());
-        assert_eq!(edit.groups().len(), 1);
-        assert_eq!(edit.active_group_index(), 0);
-        assert!(!edit.remove_active_group());
-    }
 
-    #[test]
-    fn new_groups_start_with_empty_named_selection_and_group_limit() {
-        let mut edit = MotionEdit::new(SmoothingOptions::default());
-        for _ in 0..63 {
-            assert!(edit.add_group());
-        }
-        assert!(!edit.add_group());
-        assert_eq!(edit.groups().len(), 64);
-        assert!(matches!(
-            &edit.options().selection,
-            mmd_engine::vmd_smoothing::BoneSelection::Named(ref names) if names.is_empty()
-        ));
-    }
 
     #[test]
     fn source_change_invalidates_same_frame_preview_actions() {

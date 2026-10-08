@@ -6,10 +6,12 @@ import com.mojang.blaze3d.vertex.BufferUploader;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.shiroha.mmdskin.bridge.runtime.NativeRenderBackendPort;
 import com.shiroha.mmdskin.compat.iris.IrisCompat;
+import com.shiroha.mmdskin.compat.iris.IrisEntityDiagnostics;
 import com.shiroha.mmdskin.compat.iris.IrisToonCompat;
 import com.shiroha.mmdskin.config.ConfigManager;
 import com.shiroha.mmdskin.render.material.ModelMaterial;
 import com.shiroha.mmdskin.render.material.SubMeshDrawHelper;
+import com.shiroha.mmdskin.render.outline.OutlineRenderPass;
 import com.shiroha.mmdskin.render.pipeline.LightingHelper;
 import com.shiroha.mmdskin.render.pipeline.GpuTimerQueryPool;
 import com.shiroha.mmdskin.render.pipeline.RenderPerformanceProfiler;
@@ -73,7 +75,9 @@ final class GpuSkinningModelRenderer {
                 && refreshFirstPersonIndices(target, nativeBackend, modelHandle, deliverStack);
         refreshSubMeshData(target, nativeBackend, modelHandle, firstPersonIndexReady);
 
-        boolean useToon = initializeToonShaderIfNeeded();
+        boolean useToon = initializeToonShaderIfNeeded(!isGuiScene);
+        float toonIntensity = isGuiScene ? 1.0f
+                : (IrisCompat.isIrisShaderActive() ? light.intensity() * 0.8f : light.intensity());
 
         target.modelViewMatBuff.clear();
         target.projMatBuff.clear();
@@ -86,9 +90,9 @@ final class GpuSkinningModelRenderer {
         GpuTimerQueryPool.draw().begin();
         try {
             if (useToon && GpuSkinningModelInstance.toonShaderCpu != null && GpuSkinningModelInstance.toonShaderCpu.isInitialized()) {
-                renderToon(target, minecraft, light.intensity(), firstPersonIndexReady);
+                renderToon(target, minecraft, toonIntensity, firstPersonIndexReady, !isGuiScene);
             } else {
-                renderNormal(target, minecraft, light, firstPersonIndexReady, deliverStack);
+                renderNormal(target, minecraft, light, firstPersonIndexReady, deliverStack, isGuiScene);
             }
         } finally {
             GpuTimerQueryPool.draw().end();
@@ -147,7 +151,7 @@ final class GpuSkinningModelRenderer {
                 String.format(java.util.Locale.ROOT, "%.4f", ratio));
     }
 
-    private static boolean initializeToonShaderIfNeeded() {
+    private static boolean initializeToonShaderIfNeeded(boolean irisEntityScene) {
         // 阴影通道复用 Iris 程序；GPU 蒙皮结果仍作为普通顶点输入。
         if (IrisCompat.isRenderingShadows() || !ConfigManager.isToonRenderingEnabled()) {
             return false;
@@ -164,7 +168,10 @@ final class GpuSkinningModelRenderer {
                 }
             }
         }
-        return IrisToonCompat.prepare(GpuSkinningModelInstance.toonShaderCpu);
+        return irisEntityScene
+                ? IrisToonCompat.prepare(GpuSkinningModelInstance.toonShaderCpu)
+                : GpuSkinningModelInstance.toonShaderCpu.selectOutputProfile(
+                        com.shiroha.mmdskin.render.shader.ToonOutputProfile.vanilla());
     }
 
     private static void updateGpuStateIfDirty(GpuSkinningModelInstance target,
@@ -241,6 +248,10 @@ final class GpuSkinningModelRenderer {
         if (target.I_positionLocation != -1) GL46C.glDisableVertexAttribArray(target.I_positionLocation);
         if (target.I_normalLocation != -1) GL46C.glDisableVertexAttribArray(target.I_normalLocation);
         if (target.I_uv0Location != -1) GL46C.glDisableVertexAttribArray(target.I_uv0Location);
+        if (target.I_uv1Location != -1) {
+            GL46C.glDisableVertexAttribArray(target.I_uv1Location);
+            GL46C.glVertexAttribDivisor(target.I_uv1Location, 0);
+        }
         if (target.I_uv2Location != -1) GL46C.glDisableVertexAttribArray(target.I_uv2Location);
         if (target.I_colorLocation != -1) GL46C.glDisableVertexAttribArray(target.I_colorLocation);
     }
@@ -249,7 +260,8 @@ final class GpuSkinningModelRenderer {
                                      Minecraft minecraft,
                                      LightingHelper.LightData light,
                                      boolean firstPersonIndexReady,
-                                     PoseStack deliverStack) {
+                                     PoseStack deliverStack,
+                                     boolean guiScene) {
         ShaderInstance shader = RenderSystem.getShader();
         if (shader == null) {
             logger.error("[GPU skinning] RenderSystem.getShader() returned null; skipping render");
@@ -262,18 +274,6 @@ final class GpuSkinningModelRenderer {
         float alphaFactor = target.getGlobalAlpha();
         RenderSystem.setShaderColor(colorFactor, colorFactor, colorFactor, alphaFactor);
 
-        target.setUniforms(shader, deliverStack);
-        shader.apply();
-
-        target.updateLocation(target.shaderProgram);
-
-        if (target.modelViewLocation != -1) {
-            RenderSystem.glUniformMatrix4(target.modelViewLocation, false, target.modelViewMatBuff);
-        }
-        if (target.projMatLocation != -1) {
-            RenderSystem.glUniformMatrix4(target.projMatLocation, false, target.projMatBuff);
-        }
-
         BufferUploader.reset();
         GL46C.glBindVertexArray(target.vertexArrayObject);
         RenderSystem.enableBlend();
@@ -281,27 +281,52 @@ final class GpuSkinningModelRenderer {
         RenderSystem.blendEquation(GL46C.GL_FUNC_ADD);
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
 
-        int activeIndexBufferObject = firstPersonIndexReady
-                ? target.firstPersonIndexBufferObject
-                : target.indexBufferObject;
-        GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, activeIndexBufferObject);
-
-        int blockBrightness = LightingHelper.computeBlockBrightness(light.blockLight());
-        int skyBrightness = LightingHelper.computeSkyBrightness(light.skyLight(), light.skyDarken(), irisActive);
-        uploadLightBufferIfNeeded(target, blockBrightness, skyBrightness);
-
-        bindVertexAttributes(target);
-        drawAllSubMeshes(target, minecraft);
-        clearRenderState(target);
+        boolean shadowPass = IrisCompat.isRenderingShadows();
+        int shadowDraw = shadowPass ? GL46C.glGetInteger(GL46C.GL_DRAW_FRAMEBUFFER_BINDING) : -1;
+        int shadowRead = shadowPass ? GL46C.glGetInteger(GL46C.GL_READ_FRAMEBUFFER_BINDING) : -1;
+        try {
+            // 保留 Iris 按缓冲设置的混合状态，不能在 apply 后重置。
+            target.setUniforms(shader, deliverStack);
+            shader.apply();
+            target.updateLocation(target.shaderProgram);
+            if (target.modelViewLocation != -1) {
+                RenderSystem.glUniformMatrix4(target.modelViewLocation, false, target.modelViewMatBuff);
+            }
+            if (target.projMatLocation != -1) {
+                RenderSystem.glUniformMatrix4(target.projMatLocation, false, target.projMatBuff);
+            }
+            int activeIndexBufferObject = firstPersonIndexReady
+                    ? target.firstPersonIndexBufferObject : target.indexBufferObject;
+            GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, activeIndexBufferObject);
+            int blockBrightness = LightingHelper.computeBlockBrightness(light.blockLight());
+            int skyBrightness = LightingHelper.computeSkyBrightness(light.skyLight(), light.skyDarken(), irisActive);
+            uploadLightBufferIfNeeded(target, blockBrightness, skyBrightness);
+            bindVertexAttributes(target, !guiScene);
+            IrisEntityDiagnostics.record(shader, light);
+            drawAllSubMeshes(target, minecraft);
+        } finally {
+            try {
+                clearRenderState(target);
+            } finally {
+                IrisCompat.clearProgram(shader, shadowDraw, shadowRead);
+            }
+        }
     }
 
-    private static void bindVertexAttributes(GpuSkinningModelInstance target) {
+    private static void bindVertexAttributes(GpuSkinningModelInstance target, boolean irisEntityScene) {
+        if (irisEntityScene && target.I_uv1Location != -1) {
+            // 所有顶点读同一组整数覆盖坐标，不修改全局常量属性。
+            GL46C.glEnableVertexAttribArray(target.I_uv1Location);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.uv1BufferObject);
+            GL46C.glVertexAttribIPointer(target.I_uv1Location, 2, GL46C.GL_INT, 0, target.vertexCount * 8L);
+            GL46C.glVertexAttribDivisor(target.I_uv1Location, 1);
+        }
         if (target.uv2Location != -1) {
             GL46C.glEnableVertexAttribArray(target.uv2Location);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.uv2BufferObject);
             GL46C.glVertexAttribIPointer(target.uv2Location, 2, GL46C.GL_INT, 0, 0);
         }
-        if (target.I_uv2Location != -1) {
+        if (irisEntityScene && target.I_uv2Location != -1) {
             GL46C.glEnableVertexAttribArray(target.I_uv2Location);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.uv2BufferObject);
             GL46C.glVertexAttribIPointer(target.I_uv2Location, 2, GL46C.GL_INT, 0, 0);
@@ -311,7 +336,7 @@ final class GpuSkinningModelRenderer {
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.colorBufferObject);
             GL46C.glVertexAttribPointer(target.colorLocation, 4, GL46C.GL_FLOAT, false, 0, 0);
         }
-        if (target.I_colorLocation != -1) {
+        if (irisEntityScene && target.I_colorLocation != -1) {
             GL46C.glEnableVertexAttribArray(target.I_colorLocation);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.colorBufferObject);
             GL46C.glVertexAttribPointer(target.I_colorLocation, 4, GL46C.GL_FLOAT, false, 0, 0);
@@ -337,17 +362,17 @@ final class GpuSkinningModelRenderer {
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.uv1BufferObject);
             GL46C.glVertexAttribIPointer(target.uv1Location, 2, GL46C.GL_INT, 0, 0);
         }
-        if (target.I_positionLocation != -1) {
+        if (irisEntityScene && target.I_positionLocation != -1) {
             GL46C.glEnableVertexAttribArray(target.I_positionLocation);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.skinnedPositionsBuffer);
             GL46C.glVertexAttribPointer(target.I_positionLocation, 3, GL46C.GL_FLOAT, false, 0, 0);
         }
-        if (target.I_normalLocation != -1) {
+        if (irisEntityScene && target.I_normalLocation != -1) {
             GL46C.glEnableVertexAttribArray(target.I_normalLocation);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.skinnedNormalsBuffer);
             GL46C.glVertexAttribPointer(target.I_normalLocation, 3, GL46C.GL_FLOAT, false, 0, 0);
         }
-        if (target.I_uv0Location != -1) {
+        if (irisEntityScene && target.I_uv0Location != -1) {
             GL46C.glEnableVertexAttribArray(target.I_uv0Location);
             GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, activeUvBuffer);
             GL46C.glVertexAttribPointer(target.I_uv0Location, 2, GL46C.GL_FLOAT, false, 0, 0);
@@ -396,7 +421,8 @@ final class GpuSkinningModelRenderer {
     private static void renderToon(GpuSkinningModelInstance target,
                                    Minecraft minecraft,
                                    float lightIntensity,
-                                   boolean firstPersonIndexReady) {
+                                   boolean firstPersonIndexReady,
+                                   boolean irisEntityScene) {
         BufferUploader.reset();
         GL46C.glBindVertexArray(target.vertexArrayObject);
         RenderSystem.enableBlend();
@@ -404,7 +430,9 @@ final class GpuSkinningModelRenderer {
         RenderSystem.blendEquation(GL46C.GL_FUNC_ADD);
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
 
-        ShaderInstance irisShader = IrisCompat.isIrisShaderActive() ? RenderSystem.getShader() : null;
+        ShaderInstance currentShader = RenderSystem.getShader();
+        ShaderInstance irisShader = irisEntityScene && IrisCompat.isIrisProgram(currentShader)
+                ? currentShader : null;
         try {
             // 先设普通混合，再让 Iris 应用每个缓冲的混合规则。
             if (irisShader != null) {
@@ -450,7 +478,7 @@ final class GpuSkinningModelRenderer {
             if (uvLoc != -1) GL46C.glDisableVertexAttribArray(uvLoc);
 
             if (GpuSkinningModelInstance.toonConfig.isOutlineEnabled()) {
-                renderOutlinePass(target, minecraft);
+                renderOutlinePass(target);
             }
 
         } finally {
@@ -460,54 +488,12 @@ final class GpuSkinningModelRenderer {
         }
     }
 
-    private static void renderOutlinePass(GpuSkinningModelInstance target, Minecraft minecraft) {
-        GpuSkinningModelInstance.toonShaderCpu.useOutline();
-
-        int posLoc = GpuSkinningModelInstance.toonShaderCpu.getOutlinePositionLocation();
-        int norLoc = GpuSkinningModelInstance.toonShaderCpu.getOutlineNormalLocation();
-        int uvLoc = GpuSkinningModelInstance.toonShaderCpu.getOutlineUv0Location();
-        int outlineUvBuffer = target.skinnedUvBuffer > 0 ? target.skinnedUvBuffer : target.uv0BufferObject;
-
-        if (posLoc != -1) {
-            GL46C.glEnableVertexAttribArray(posLoc);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.skinnedPositionsBuffer);
-            GL46C.glVertexAttribPointer(posLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
-        }
-        if (norLoc != -1) {
-            GL46C.glEnableVertexAttribArray(norLoc);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, target.skinnedNormalsBuffer);
-            GL46C.glVertexAttribPointer(norLoc, 3, GL46C.GL_FLOAT, false, 0, 0);
-        }
-        if (uvLoc != -1) {
-            GL46C.glEnableVertexAttribArray(uvLoc);
-            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, outlineUvBuffer);
-            GL46C.glVertexAttribPointer(uvLoc, 2, GL46C.GL_FLOAT, false, 0, 0);
-        }
-
-        GpuSkinningModelInstance.toonShaderCpu.setOutlineProjectionMatrix(target.projMatBuff);
-        GpuSkinningModelInstance.toonShaderCpu.setOutlineModelViewMatrix(target.modelViewMatBuff);
-        ToonRenderHelper.setupOutlineUniforms(GpuSkinningModelInstance.toonShaderCpu, target.getGlobalAlpha());
-        int missingTextureId = minecraft.getTextureManager()
-                .getTexture(TextureManager.INTENTIONAL_MISSING_TEXTURE)
-                .getId();
-
-        RenderSystem.depthMask(false);
-        GL46C.glCullFace(GL46C.GL_FRONT);
-        RenderSystem.enableCull();
-        SubMeshDrawHelper.drawOutline(
-                target.subMeshDataBuf,
-                target.subMeshCount,
-                target.indexElementSize,
-                target.indexType,
-                materialId -> target.mats[materialId].tex == 0 ? missingTextureId : target.mats[materialId].tex,
-                (materialId, baseAlpha) -> effectiveOutlineAlpha(target, materialId, baseAlpha)
-        );
-        GL46C.glCullFace(GL46C.GL_BACK);
-        RenderSystem.depthMask(true);
-
-        if (posLoc != -1) GL46C.glDisableVertexAttribArray(posLoc);
-        if (norLoc != -1) GL46C.glDisableVertexAttribArray(norLoc);
-        if (uvLoc != -1) GL46C.glDisableVertexAttribArray(uvLoc);
+    private static void renderOutlinePass(GpuSkinningModelInstance target) {
+        OutlineRenderPass.draw(GpuSkinningModelInstance.toonShaderCpu, new OutlineRenderPass.Inputs(
+                target.skinnedPositionsBuffer, target.skinnedNormalsBuffer, target.subMeshDataBuf,
+                target.subMeshCount, target.indexElementSize, target.indexType,
+                target.projMatBuff, target.modelViewMatBuff, target.modelScaleValue()),
+                (materialId, baseAlpha) -> effectiveOutlineAlpha(target, materialId, baseAlpha));
     }
 
     private static void drawAllSubMeshes(GpuSkinningModelInstance target, Minecraft minecraft) {

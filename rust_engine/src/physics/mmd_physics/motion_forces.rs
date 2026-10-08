@@ -73,7 +73,7 @@ impl MMDPhysics {
         let local_vel = rot_inv * world_vel;
         let movement_active =
             config.inertia_strength > 0.0 && model_velocity.length_squared() > 1e-6;
-        let idle_lift = self.tail_forces.idle_lift_acceleration(
+        let idle_lift = self.tail_forces.advance_idle_wave(
             dt,
             local_vel,
             config.gravity_y.abs(),
@@ -98,7 +98,7 @@ impl MMDPhysics {
             let max_accel = config.max_linear_velocity * self.fps;
 
             // F = m * a_drag（空气阻力与平滑加速度，不除以 dt，避免帧率抖动和过度爆炸）
-            for rb_data in &self.rigid_bodies {
+            for (body_index, rb_data) in self.rigid_bodies.iter().enumerate() {
                 if rb_data.physics_mode == PhysicsMode::FollowBone {
                     continue;
                 }
@@ -106,18 +106,22 @@ impl MMDPhysics {
                     let mass = body.get_mass();
                     if mass > 0.0 {
                         let is_skirt = is_skirt_body_name(&rb_data.name);
-                        let use_new_tail_rules =
-                            self.tail_forces.idle_lift || self.tail_forces.movement_boost;
-                        let is_tail = if use_new_tail_rules {
-                            rb_data.is_tail_dynamic
+                        // 分类固定，开关只控制附加受力。
+                        let is_tail = rb_data.is_tail_dynamic;
+                        let tail_idle_accel = if is_tail {
+                            let lift = self
+                                .tail_forces
+                                .idle_lift_for_body(body_index, config.inertia_strength);
+                            Vec3::new(0.0, lift, lift)
                         } else {
-                            rb_data.is_tail_dynamic_legacy
+                            Vec3::ZERO
                         };
 
                         let accel = if is_tail {
-                            // 尾巴作为柔性长摆锤，在跑动时需要明显的阻尼滞后（Damped Tracking）和迎风向后扬起效果。
-                            // 线性风阻 + 迎风动压阻力 + 空气升力，使尾巴在疾跑时自然向后上方扬起（~45°），并在停步时平滑摆回。
-                            let mut tail_accel = if movement_active {
+                            // 启用时叠加线性风阻、迎风动压阻力和升力。
+                            let mut tail_accel = if movement_active
+                                && self.tail_forces.movement_boost
+                            {
                                 let forward_speed = local_vel.z.max(0.0);
                                 let quad_drag =
                                     0.025 * forward_speed * forward_speed * config.inertia_strength;
@@ -130,10 +134,11 @@ impl MMDPhysics {
                                     (local_vel.z * 2.8 + quad_drag) * config.inertia_strength,
                                 ))
                             } else {
-                                Vec3::ZERO
+                                // 关闭移动增强后仅保留普通惯性。
+                                inertia_accel
                             };
                             // 近竖直尾链需要后向分量形成抬起力矩，纯向上力只会卸载重力。
-                            tail_accel += Vec3::new(0.0, idle_lift, idle_lift);
+                            tail_accel += tail_idle_accel;
                             tail_accel
                         } else if is_skirt {
                             // 裙摆是环绕身体的环状结构，惯性响应系数降低为 0.15，保持裙摆优雅形态，防止跑动时向上翻起
@@ -149,10 +154,35 @@ impl MMDPhysics {
                         let mut force = accel * mass;
                         let max_force = max_accel * mass;
                         let force_sq = force.length_squared();
-                        if force_sq > max_force * max_force {
-                            force *= max_force / force_sq.sqrt();
+                        let force_scale = if force_sq > max_force * max_force {
+                            max_force / force_sq.sqrt()
+                        } else {
+                            1.0
+                        };
+                        force *= force_scale;
+                        let offset_force = if is_tail && self.tail_forces.movement_boost {
+                            force
+                        } else {
+                            // 普通惯性不加力矩；闲置抬起仍独立作用。
+                            tail_idle_accel * mass * force_scale
+                        };
+                        let central_force = force - offset_force;
+                        body.apply_central_force(central_force.x, central_force.y, central_force.z);
+                        if offset_force.length_squared() > 0.0 {
+                            // 尾段在局部 Y 轴末端受风，保留线性拖拽并通过 r×F 形成抬头力矩。
+                            // 作用臂按碰撞体尺寸取保守值，避免长条体被过度扭转。
+                            let lever = rb_data
+                                .shape_size
+                                .iter()
+                                .copied()
+                                .fold(0.0_f32, f32::max)
+                                .clamp(0.04, 0.8)
+                                * 0.65;
+                            body.apply_force_at_local_offset(
+                                offset_force,
+                                Vec3::new(0.0, lever, 0.0),
+                            );
                         }
-                        body.apply_central_force(force.x, force.y, force.z);
                     }
                 }
             }

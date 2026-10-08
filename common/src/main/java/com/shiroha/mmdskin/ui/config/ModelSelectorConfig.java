@@ -44,10 +44,6 @@ public class ModelSelectorConfig {
         return instance;
     }
 
-    static synchronized void setInstanceForTesting(ModelSelectorConfig testInstance) {
-        instance = testInstance;
-    }
-
     private void load() {
         if (configFile.exists()) {
             int retryCount = 0;

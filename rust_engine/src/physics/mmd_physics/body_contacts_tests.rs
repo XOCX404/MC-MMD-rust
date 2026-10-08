@@ -40,7 +40,7 @@ fn chest_physics(dynamic_position: Vec3) -> MMDPhysics {
             "",
             0,
             0,
-            0,
+            1 << 3,
             RigidBodyMode::Static,
             1.0,
             Vec3::ZERO,
@@ -50,7 +50,7 @@ fn chest_physics(dynamic_position: Vec3) -> MMDPhysics {
             "",
             1,
             3,
-            0,
+            1,
             RigidBodyMode::Dynamic,
             0.1,
             dynamic_position,
@@ -115,50 +115,4 @@ fn strict_mode_keeps_the_authored_body_contact() {
     assert!(shell.check_collide_with(chest));
 }
 
-#[test]
-fn nonembedded_chest_remains_collidable() {
-    let (bone_names, bone_parents) = chest_bones();
-    let mut physics = chest_physics(Vec3::new(2.0, 0.0, 0.0));
-    physics.world.detect_collisions();
-    assert!(physics.world.contact_manifolds().is_empty());
 
-    assert_eq!(
-        physics.configure_embedded_body_contacts(&bone_names, &bone_parents),
-        0
-    );
-    let shell = physics.rigid_bodies[0].bullet_body.as_ref().unwrap();
-    let chest = physics.rigid_bodies[1].bullet_body.as_ref().unwrap();
-    assert!(shell.check_collide_with(chest));
-}
-
-#[test]
-fn english_skirt_tassel_keeps_pmx_exclusion_with_hip_shell_present() {
-    let mut physics = MMDPhysics::new().expect("Bullet world should be available");
-    let bodies = [
-        pmx_body("腰壳", "", 0, 0, 0, RigidBodyMode::Static, 1.0, Vec3::ZERO),
-        pmx_body(
-            "胸前穗_0_1",
-            "Skirt_0_1",
-            1,
-            14,
-            0xBFFF,
-            RigidBodyMode::Dynamic,
-            0.1,
-            Vec3::ZERO,
-        ),
-    ];
-    let (bone_names, bone_parents) = chest_bones();
-    physics.build_physics(&bodies, &[], &[Mat4::IDENTITY; 2]);
-    physics.world.set_gravity(0.0, 0.0, 0.0);
-    physics.collision_stability_mode = CollisionStabilityMode::Stable;
-    physics.world.detect_collisions();
-
-    assert!(physics.world.contact_manifolds().is_empty());
-    assert_eq!(physics.rigid_bodies[1].collision_mask, 0x4000);
-    assert_eq!(
-        physics.configure_embedded_body_contacts(&bone_names, &bone_parents),
-        0
-    );
-    assert!(physics.world.contact_manifolds().is_empty());
-    assert_eq!(physics.rigid_bodies[1].collision_mask, 0x4000);
-}

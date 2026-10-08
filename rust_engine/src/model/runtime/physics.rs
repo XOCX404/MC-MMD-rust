@@ -74,7 +74,7 @@ impl MmdModel {
         physics.build_physics(&all_rigid_bodies, &all_joints, &bind_bone_transforms);
         let bone_parents: Vec<_> = self.bone_manager.links().map(|b| b.parent_index).collect();
         physics.configure_embedded_body_contacts(&bone_names, &bone_parents);
-        physics.set_tail_bone_names(&bone_names);
+        physics.set_tail_bone_names(&bone_names, &bone_parents);
         physics.set_tail_physics_options(self.tail_idle_lift, self.tail_movement_boost);
         self.physics_position_aligned_bones = physics
             .rigid_bodies
@@ -150,6 +150,13 @@ impl MmdModel {
             .map_or_else(Vec::new, |physics| physics.joint_snapshots_matching(needle))
     }
 
+    /// 读取腿部与裙摆的 Bullet 接触诊断快照。
+    pub fn garment_physics_snapshot(&self) -> crate::physics::GarmentPhysicsSnapshot {
+        self.physics
+            .as_ref()
+            .map_or_else(Default::default, MMDPhysics::garment_snapshot)
+    }
+
     /// 更新物理模拟（Bullet3）
     ///
     /// 流程：sync_bodies → stepSimulation → sync_bones
@@ -181,7 +188,7 @@ impl MmdModel {
         if !delta_time.is_finite() {
             // 时间参数异常时不重摆动态链，避免破坏已建立的关节锚点。
             physics.recover_after_large_delta(&self.physics_bone_transforms_buf);
-            self.physics_resync_pending = false;
+            self.writeback_physics_bones(&mut physics);
             self.physics = Some(physics);
             return;
         }
@@ -189,6 +196,7 @@ impl MmdModel {
         if delta_time <= 0.0 {
             // 第一人称会执行零步长求值；只同步运动学刚体，不清空动态物理链。
             physics.sync_bodies(&self.physics_bone_transforms_buf);
+            self.writeback_physics_bones(&mut physics);
             self.physics = Some(physics);
             return;
         }
@@ -203,19 +211,21 @@ impl MmdModel {
             }
             physics.initialize(&self.physics_bone_transforms_buf);
             self.physics_resync_pending = false;
+            self.writeback_physics_bones(&mut physics);
             self.physics = Some(physics);
             return;
         }
 
         if delta_time > max_step_delta {
             // 卡顿帧只清除旧速度；重新按骨骼摆放动态体会制造关节锚点失配。
+            physics.recover_after_large_delta(&self.physics_bone_transforms_buf);
+            self.writeback_physics_bones(&mut physics);
             if crate::physics::config::get_config().debug_log {
                 log::info!(
-                    "[Bullet3][PHYSICS_GAP_RECOVER] reason=large_delta preserve_dynamic_constraints=true delta_time={:.6}",
+                    "[Bullet3][PHYSICS_GAP_RECOVER] reason=large_delta preserve_dynamic_constraints=true physical_bones_written=true delta_time={:.6}",
                     delta_time,
                 );
             }
-            physics.recover_after_large_delta(&self.physics_bone_transforms_buf);
             self.physics = Some(physics);
             return;
         }
@@ -231,6 +241,14 @@ impl MmdModel {
         physics.step_simulation(delta_time);
 
         // 3. 同步物理结果回骨骼（复用内部缓冲区）
+        self.writeback_physics_bones(&mut physics);
+
+        // 归还所有权
+        self.physics = Some(physics);
+    }
+
+    /// 每条启用物理的路径都将当前 Bullet 姿态写回骨骼，避免跳帧时回退到动画姿态。
+    fn writeback_physics_bones(&mut self, physics: &mut MMDPhysics) {
         let dynamic_bone_transforms =
             physics.get_dynamic_bone_transforms(&self.physics_bone_transforms_buf);
 
@@ -239,9 +257,6 @@ impl MmdModel {
             dynamic_bone_transforms,
             &self.physics_position_aligned_bones,
         );
-
-        // 归还所有权
-        self.physics = Some(physics);
     }
 
     /// 收集当前骨骼全局矩阵，供初始化、重置和每帧物理同步复用。
@@ -326,3 +341,7 @@ impl MmdModel {
 
     // ======== VR 联动 ========
 }
+
+#[cfg(test)]
+#[path = "physics_tests.rs"]
+mod physics_tests;

@@ -4,6 +4,7 @@ package com.shiroha.mmdskin.bridge.runtime;
 import com.shiroha.mmdskin.NativeFunc;
 import com.shiroha.mmdskin.config.PhysicsConfigSnapshot;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -424,6 +425,18 @@ public final class NativeRuntimeBridge implements
     @Override
     public String getMaterialTexturePath(long modelHandle, int materialIndex) {
         return nativeFunc().GetMaterialTex(modelHandle, materialIndex);
+    }
+
+    @Override
+    public float[] getMaterialDiffuseColor(long modelHandle, int materialIndex) {
+        long address = nativeFunc().GetMaterialDiffuse(modelHandle, materialIndex);
+        float[] color = new float[] {1.0f, 1.0f, 1.0f, 1.0f};
+        if (address != 0L) {
+            ByteBuffer buffer = ByteBuffer.allocateDirect(4 * Float.BYTES).order(ByteOrder.nativeOrder());
+            nativeFunc().CopyDataToByteBuffer(buffer, address, 4 * Float.BYTES);
+            buffer.asFloatBuffer().get(color);
+        }
+        return color;
     }
 
     @Override

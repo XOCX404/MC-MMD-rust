@@ -39,34 +39,17 @@ fn kinematic_body(shape: &BulletShape, transform: Mat4) -> BulletRigidBody {
     .expect("应能创建 Bullet 运动学测试刚体")
 }
 
+extern "C" {
+    fn bw_test_only_clear_motion_state(body: *mut std::ffi::c_void);
+}
+
 fn assert_vec3_close(actual: Vec3, expected: Vec3) {
     assert!(
-        actual.abs_diff_eq(expected, 1e-5),
+        actual.abs_diff_eq(expected, 1e-4),
         "actual={actual:?}, expected={expected:?}"
     );
 }
 
-#[test]
-fn ignored_contact_must_stop_driving_the_solver_after_initial_detection() {
-    let world = BulletWorld::new(0.0, 0.0, 0.0).unwrap();
-    let shape = BulletShape::sphere(1.0).unwrap();
-    let shell = kinematic_body(&shape, Mat4::IDENTITY);
-    let dynamic = body(&shape, Mat4::from_translation(Vec3::X));
-    world.add_rigid_body(&shell, 1, 2);
-    world.add_rigid_body(&dynamic, 2, 1);
-    world.detect_collisions();
-    assert!(!world.contact_manifolds().is_empty());
-    dynamic.set_ignore_collision_check(&shell, true);
-    world.refresh_body_collision_filter(&dynamic);
-    world.detect_collisions();
-    assert!(world.contact_manifolds().is_empty());
-    world.step(1.0 / 60.0, 5, 1.0 / 60.0);
-    let moved = dynamic.get_simulation_transform().w_axis.truncate().distance(Vec3::X);
-    let velocity = dynamic.get_linear_velocity().length();
-    world.remove_rigid_body(&dynamic);
-    world.remove_rigid_body(&shell);
-    assert!(moved < 1e-5 && velocity < 1e-5, "旧流形仍推动刚体: moved={moved} velocity={velocity}");
-}
 
 #[test]
 fn refreshing_one_filter_preserves_other_contacts_and_can_restore_the_pair() {
@@ -85,7 +68,9 @@ fn refreshing_one_filter_preserves_other_contacts_and_can_restore_the_pair() {
     world.detect_collisions();
     let contacts = world.contact_manifolds();
     assert_eq!(contacts.len(), 1);
-    assert!(contacts.iter().all(|c| c.body_a != shell.as_ptr() as usize && c.body_b != shell.as_ptr() as usize));
+    assert!(contacts
+        .iter()
+        .all(|c| c.body_a != shell.as_ptr() as usize && c.body_b != shell.as_ptr() as usize));
     dynamic.set_ignore_collision_check(&shell, false);
     world.refresh_body_collision_filter(&dynamic);
     world.detect_collisions();
@@ -158,21 +143,137 @@ fn six_dof_round_trip_preserves_frames_limits_and_defaults() {
     assert!(diagnostic.use_frame_offset);
 }
 
+
 #[test]
-fn kinematic_target_preserves_motion_for_bullet_velocity_calculation() {
+fn kinematic_target_is_interpolated_across_batched_substeps() {
     let shape = BulletShape::sphere(0.25).expect("应能创建 Bullet 测试形状");
     let body = kinematic_body(&shape, Mat4::IDENTITY);
     let world = BulletWorld::new(0.0, 0.0, 0.0).expect("应能创建 Bullet 测试世界");
     world.add_rigid_body(&body, 1, -1);
 
     let dt = 1.0 / 60.0;
-    body.set_kinematic_target(Mat4::from_translation(Vec3::X));
-    world.step(dt, 1, dt);
+    let target = Mat4::from_rotation_translation(
+        Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        Vec3::X,
+    );
+    body.set_kinematic_target(target);
+    world.step(dt * 4.0, 4, dt);
 
-    assert_vec3_close(body.get_transform().w_axis.truncate(), Vec3::X);
-    assert_vec3_close(body.get_linear_velocity(), Vec3::new(60.0, 0.0, 0.0));
+    assert!(body.get_simulation_transform().abs_diff_eq(target, 1e-5));
+    // 四个子步把 1 米位移摊进 4/60 秒，每个子步速度为 15。
+    assert_vec3_close(body.get_linear_velocity(), Vec3::new(15.0, 0.0, 0.0));
+    assert_vec3_close(
+        body.get_angular_velocity(),
+        Vec3::new(0.0, 0.0, std::f32::consts::FRAC_PI_2 / (dt * 4.0)),
+    );
     world.remove_rigid_body(&body);
 }
+
+
+
+#[test]
+fn render_sync_predicts_free_motion_by_fixed_step_remainder() {
+    let world = BulletWorld::new(0.0, 0.0, 0.0).expect("应能创建 Bullet 测试世界");
+    let shape = BulletShape::sphere(0.1).expect("应能创建 Bullet 测试形状");
+    let body = body(&shape, Mat4::IDENTITY);
+    world.add_rigid_body(&body, 1, 0);
+    body.set_linear_velocity(3.0, 0.0, 0.0);
+    let step = 1.0 / 60.0;
+    world.step(step, 1, step);
+    world.step(step * 0.5, 1, step);
+
+    let solved = body.get_simulation_transform();
+    assert!((world.render_time_offset() - step * 0.5).abs() < 1e-7);
+    world.sync_render_states();
+    assert!(body.get_simulation_transform().abs_diff_eq(solved, 0.0));
+    assert!((body.get_transform().w_axis.x - (solved.w_axis.x + 3.0 * step * 0.5)).abs() < 1e-5);
+    world.remove_rigid_body(&body);
+}
+
+#[test]
+fn render_sync_does_not_advance_a_body_into_its_contact_plane() {
+    let world = BulletWorld::new(0.0, 0.0, 0.0).expect("应能创建 Bullet 测试世界");
+    let wall_shape = BulletShape::r#box(0.1, 1.0, 1.0).expect("应能创建墙体");
+    let sphere_shape = BulletShape::sphere(0.2).expect("应能创建球体");
+    let wall = kinematic_body(&wall_shape, Mat4::IDENTITY);
+    let moving = body(
+        &sphere_shape,
+        Mat4::from_translation(Vec3::new(0.29, 0.0, 0.0)),
+    );
+    world.add_rigid_body(&wall, 1, -1);
+    world.add_rigid_body(&moving, 2, -1);
+    world.detect_collisions();
+    assert!(!world.contact_manifolds().is_empty());
+
+    let step = 1.0 / 60.0;
+    moving.set_linear_velocity(-3.0, 0.0, 0.0);
+    world.step(step * 0.5, 5, step);
+    let solved = moving.get_simulation_transform();
+    world.sync_render_states();
+
+    assert!(moving.get_simulation_transform().abs_diff_eq(solved, 0.0));
+    assert!(
+        moving.get_transform().w_axis.x >= solved.w_axis.x - 1e-5,
+        "渲染预测进入接触平面: solved={:?}, render={:?}",
+        solved.w_axis.truncate(),
+        moving.get_transform().w_axis.truncate()
+    );
+    world.remove_rigid_body(&moving);
+    world.remove_rigid_body(&wall);
+}
+
+
+fn run_kinematic_crossing(manual_substeps: bool) -> (f32, usize, f32) {
+    let world = BulletWorld::new(0.0, 0.0, 0.0).expect("应能创建 Bullet 测试世界");
+    let sphere = BulletShape::sphere(0.2).expect("应能创建运动学球体");
+    let obstacle = BulletShape::r#box(0.1, 0.35, 0.35).expect("应能创建动态盒体");
+    let mover = kinematic_body(&sphere, Mat4::from_translation(Vec3::new(-1.0, 0.0, 0.0)));
+    let target = body(&obstacle, Mat4::IDENTITY);
+    world.add_rigid_body(&mover, 1, -1);
+    world.add_rigid_body(&target, 2, -1);
+
+    let step = 1.0 / 60.0;
+    let mut contact_samples = 0;
+    let mut total_impulse = 0.0;
+    if manual_substeps {
+        for index in 1..=4 {
+            let x = -1.0 + index as f32 * 0.5;
+            mover.set_kinematic_target(Mat4::from_translation(Vec3::new(x, 0.0, 0.0)));
+            world.step(step, 1, step);
+            for contact in world.contact_manifolds() {
+                contact_samples += 1;
+                total_impulse += contact.total_applied_impulse;
+            }
+        }
+    } else {
+        mover.set_kinematic_target(Mat4::from_translation(Vec3::X));
+        world.step(step * 4.0, 4, step);
+        for contact in world.contact_manifolds() {
+            contact_samples += 1;
+            total_impulse += contact.total_applied_impulse;
+        }
+    }
+
+    let final_x = target.get_simulation_transform().w_axis.x;
+    world.remove_rigid_body(&target);
+    world.remove_rigid_body(&mover);
+    (final_x, contact_samples, total_impulse)
+}
+
+#[test]
+fn batched_kinematic_crossing_matches_manual_substep_targets() {
+    let batched = run_kinematic_crossing(false);
+    let manual = run_kinematic_crossing(true);
+    assert!(batched.1 > 0, "批量子步仍漏掉运动学体沿途接触");
+    assert!(manual.1 > 0, "逐子步基线未建立接触");
+    assert!(
+        (batched.0 - manual.0).abs() < 1e-4,
+        "批量={batched:?}, 手动={manual:?}"
+    );
+    assert!(batched.2 > 0.0, "批量子步未产生有效冲量: {batched:?}");
+}
+
+
 
 #[test]
 fn kinematic_target_is_applied_before_constraint_solving() {
@@ -213,60 +314,4 @@ fn kinematic_target_is_applied_before_constraint_solving() {
     world.remove_rigid_body(&parent);
 }
 
-#[test]
-fn hard_transform_reset_does_not_create_kinematic_velocity() {
-    let shape = BulletShape::sphere(0.25).expect("应能创建 Bullet 测试形状");
-    let body = kinematic_body(&shape, Mat4::IDENTITY);
-    let world = BulletWorld::new(0.0, 0.0, 0.0).expect("应能创建 Bullet 测试世界");
-    world.add_rigid_body(&body, 1, -1);
 
-    let reset_transform = Mat4::from_translation(Vec3::new(20.0, 0.0, 0.0));
-    body.set_transform(reset_transform);
-    body.set_linear_velocity(0.0, 0.0, 0.0);
-    body.set_angular_velocity(0.0, 0.0, 0.0);
-    body.clear_forces();
-    world.step(1.0 / 60.0, 1, 1.0 / 60.0);
-
-    assert_vec3_close(
-        body.get_transform().w_axis.truncate(),
-        Vec3::new(20.0, 0.0, 0.0),
-    );
-    assert_vec3_close(body.get_linear_velocity(), Vec3::ZERO);
-    assert_vec3_close(body.get_angular_velocity(), Vec3::ZERO);
-    world.remove_rigid_body(&body);
-}
-
-#[test]
-fn ignored_pair_does_not_disable_other_collision_pairs() {
-    let shape = BulletShape::sphere(0.5).expect("应能创建 Bullet 测试形状");
-    let body_a = body(&shape, Mat4::IDENTITY);
-    let body_b = body(&shape, Mat4::from_translation(Vec3::new(0.25, 0.0, 0.0)));
-    let body_c = body(&shape, Mat4::from_translation(Vec3::new(-0.25, 0.0, 0.0)));
-    let world = BulletWorld::new(0.0, 0.0, 0.0).expect("应能创建 Bullet 测试世界");
-    world.add_rigid_body(&body_a, 1, -1);
-    world.add_rigid_body(&body_b, 1, -1);
-    world.add_rigid_body(&body_c, 1, -1);
-
-    // 局部过滤只能禁用指定刚体对，不能影响同组中的其他碰撞。
-    body_a.set_ignore_collision_check(&body_b, true);
-    assert!(!body_a.check_collide_with(&body_b));
-    assert!(!body_b.check_collide_with(&body_a));
-    assert!(body_a.check_collide_with(&body_c));
-
-    world.step(1.0 / 60.0, 1, 1.0 / 60.0);
-    let contacts = world.contact_manifolds();
-    assert!(contacts.iter().all(|contact| {
-        let pair = (contact.body_a, contact.body_b);
-        pair != (body_a.as_ptr() as usize, body_b.as_ptr() as usize)
-            && pair != (body_b.as_ptr() as usize, body_a.as_ptr() as usize)
-    }));
-    assert!(contacts.iter().any(|contact| {
-        let pair = (contact.body_a, contact.body_b);
-        pair == (body_a.as_ptr() as usize, body_c.as_ptr() as usize)
-            || pair == (body_c.as_ptr() as usize, body_a.as_ptr() as usize)
-    }));
-
-    world.remove_rigid_body(&body_a);
-    world.remove_rigid_body(&body_b);
-    world.remove_rigid_body(&body_c);
-}

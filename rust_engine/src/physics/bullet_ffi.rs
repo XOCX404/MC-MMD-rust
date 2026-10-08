@@ -100,6 +100,8 @@ mod ffi {
             max_substeps: c_int,
             fixed_dt: c_float,
         );
+        pub fn bw_world_get_render_time_offset(world: *mut BW_World) -> c_float;
+        pub fn bw_world_sync_render_states(world: *mut BW_World);
         pub fn bw_world_detect_collisions(world: *mut BW_World);
         pub fn bw_world_refresh_body_collision_filter(world: *mut BW_World, rb: *mut BW_RigidBody);
         pub fn bw_world_set_gravity(world: *mut BW_World, x: c_float, y: c_float, z: c_float);
@@ -190,6 +192,15 @@ mod ffi {
             x: c_float,
             y: c_float,
             z: c_float,
+        );
+        pub fn bw_rigid_body_apply_force_at_point(
+            rb: *mut BW_RigidBody,
+            fx: c_float,
+            fy: c_float,
+            fz: c_float,
+            rel_x: c_float,
+            rel_y: c_float,
+            rel_z: c_float,
         );
         pub fn bw_rigid_body_set_ignore_collision_check(
             rb: *mut BW_RigidBody,
@@ -288,6 +299,16 @@ impl BulletWorld {
 
     pub fn step(&self, dt: f32, max_substeps: i32, fixed_dt: f32) {
         unsafe { ffi::bw_world_step(self.ptr, dt, max_substeps, fixed_dt) }
+    }
+
+    /// 获取固定步后尚未模拟的渲染时间余数。
+    pub fn render_time_offset(&self) -> f32 {
+        unsafe { ffi::bw_world_get_render_time_offset(self.ptr) }
+    }
+
+    /// 将动态刚体的渲染姿态更新到求解时刻后的物理余数。
+    pub fn sync_render_states(&self) {
+        unsafe { ffi::bw_world_sync_render_states(self.ptr) }
     }
 
     /// 仅刷新碰撞检测结果，供初始化阶段读取首个求解步之前的接触。
@@ -542,6 +563,25 @@ impl BulletRigidBody {
 
     pub fn apply_central_force(&self, x: f32, y: f32, z: f32) {
         unsafe { ffi::bw_rigid_body_apply_central_force(self.ptr, x, y, z) }
+    }
+
+    /// 在刚体局部偏移点施力，偏移会转换到世界坐标并产生 r×F 力矩。
+    pub fn apply_force_at_local_offset(&self, force: Vec3, local_offset: Vec3) {
+        if !force.is_finite() || !local_offset.is_finite() {
+            return;
+        }
+        let world_offset = self.get_transform().transform_vector3(local_offset);
+        unsafe {
+            ffi::bw_rigid_body_apply_force_at_point(
+                self.ptr,
+                force.x,
+                force.y,
+                force.z,
+                world_offset.x,
+                world_offset.y,
+                world_offset.z,
+            )
+        }
     }
 
     pub fn force_activation_state(&self, state: i32) {

@@ -27,6 +27,10 @@ public abstract class CameraMixin {
     @Shadow
     protected abstract void setRotation(float yaw, float pitch);
 
+    // NeoForge 增补接口直接同步 roll 字段和相机基向量。
+    @Shadow(remap = false)
+    protected abstract void setRotation(float yaw, float pitch, float roll);
+
     @Inject(method = "setup", at = @At("TAIL"))
     private void onSetup(BlockGetter level, Entity entity, boolean detached, boolean mirrored, float partialTick, CallbackInfo ci) {
 
@@ -37,7 +41,7 @@ public abstract class CameraMixin {
                 controller.updateCamera();
                 if (controller.isActive()) {
                     this.setPosition(controller.getCameraX(), controller.getCameraY(), controller.getCameraZ());
-                    this.setRotation(controller.getCameraYaw(), controller.getCameraPitch());
+                    this.setRotation(controller.getCameraYaw(), controller.getCameraPitch(), controller.getCameraRoll());
                 }
             }
         } else {

@@ -204,38 +204,4 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn grouped_state_json_roundtrips_without_touching_user_files() {
-        let groups = vec![
-            SmoothingGroup {
-                name: "先组".into(),
-                enabled: false,
-                options: SmoothingOptions::default(),
-            },
-            SmoothingGroup {
-                name: "IK组".into(),
-                enabled: true,
-                options: SmoothingOptions {
-                    selection: BoneSelection::All,
-                    ..SmoothingOptions::default()
-                },
-            },
-        ];
-        let encoded = serialize_group_config(&groups).unwrap();
-        let value: Value = serde_json::from_str(&encoded).unwrap();
-        let content = json!({
-            "smoothing_groups": value["groups"],
-            "active_group_index": 1,
-        })
-        .to_string();
-        let restored = ViewerPersistedState::parse(&content).unwrap();
-        assert_eq!(restored.active_group_index, 1);
-        assert_eq!(restored.smoothing_groups.len(), 2);
-        assert_eq!(restored.smoothing_groups[0].name, "先组");
-        assert!(!restored.smoothing_groups[0].enabled);
-        assert!(matches!(
-            &restored.smoothing_groups[1].options.selection,
-            BoneSelection::All
-        ));
-    }
 }

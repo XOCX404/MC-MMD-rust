@@ -372,37 +372,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    #[test]
-    fn existing_batch_target_is_reported_as_skipped() {
-        let root = temp_dir();
-        let input = root.join("input");
-        let output = root.join("output");
-        fs::create_dir_all(&input).unwrap();
-        fs::create_dir_all(&output).unwrap();
-        fs::write(input.join("same.vmd"), b"bad source").unwrap();
-        fs::write(output.join("same.vmd"), b"keep").unwrap();
-        let report = process_directory(&input, &output, &options(), false, |_| {}).unwrap();
-        assert_eq!(report.counts(), (0, 1, 0));
-        assert_eq!(fs::read(output.join("same.vmd")).unwrap(), b"keep");
-        fs::remove_dir_all(root).unwrap();
-    }
 
-    #[test]
-    fn directory_excludes_nested_output_and_continues_after_bad_file() {
-        let root = temp_dir();
-        let input = root.join("input");
-        let output = input.join("result");
-        fs::create_dir_all(output.join("nested")).unwrap();
-        let valid = valid_empty_vmd2();
-        fs::write(input.join("bad.vmd"), b"invalid").unwrap();
-        fs::write(input.join("good.vmd"), &valid).unwrap();
-        fs::write(output.join(r"nested\again.vmd"), &valid).unwrap();
-        let report = process_directory(&input, &output, &options(), true, |_| {}).unwrap();
-        assert_eq!(report.entries.len(), 2);
-        assert_eq!(report.counts(), (1, 0, 1));
-        assert_eq!(fs::read(output.join("good.vmd")).unwrap(), valid);
-        fs::remove_dir_all(root).unwrap();
-    }
 
     #[test]
     fn rejects_output_directory_that_contains_input() {

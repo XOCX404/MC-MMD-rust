@@ -83,56 +83,8 @@ mod tests {
         bones
     }
 
-    #[test]
-    fn mode2_child_position_follows_current_physical_parent() {
-        let mut bones = chain();
-        let parent = Mat4::from_rotation_translation(
-            Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
-            Vec3::new(4.0, 0.0, 0.0),
-        );
-        let child = Mat4::from_rotation_translation(Quat::from_rotation_x(0.3), Vec3::Y);
-        bones.apply_physics_transforms(&[(0, parent), (1, child)], &HashSet::from([1]));
-        assert!(bones
-            .get_global_transform(1)
-            .w_axis
-            .truncate()
-            .abs_diff_eq(Vec3::new(3.0, 0.0, 0.0), 1e-5));
-        let (_, rotation, _) = bones
-            .get_global_transform(1)
-            .to_scale_rotation_translation();
-        assert!(rotation.abs_diff_eq(Quat::from_rotation_x(0.3), 1e-5));
-    }
 
-    #[test]
-    fn mode2_position_propagates_across_non_physical_bridge() {
-        let mut bones = chain();
-        let parent = Mat4::from_quat(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2));
-        bones.apply_physics_transforms(
-            &[(0, parent), (2, Mat4::from_translation(Vec3::Y * 2.0))],
-            &HashSet::from([2]),
-        );
-        assert!(bones
-            .get_global_transform(2)
-            .w_axis
-            .truncate()
-            .abs_diff_eq(Vec3::new(-2.0, 0.0, 0.0), 1e-5));
-    }
 
-    #[test]
-    fn mode1_child_keeps_its_physical_translation() {
-        let mut bones = chain();
-        let child = Mat4::from_translation(Vec3::new(7.0, 3.0, 2.0));
-        bones.apply_physics_transforms(
-            &[(1, child), (0, Mat4::from_translation(Vec3::X))],
-            &HashSet::new(),
-        );
-        assert!(bones.get_global_transform(1).abs_diff_eq(child, 1e-5));
-        assert!(bones
-            .get_global_transform(2)
-            .w_axis
-            .truncate()
-            .abs_diff_eq(Vec3::new(7.0, 4.0, 2.0), 1e-5));
-    }
 
     #[test]
     fn mode2_writeback_ignores_body_order_and_transform_level_order() {

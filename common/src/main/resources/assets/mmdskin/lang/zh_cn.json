@@ -159,7 +159,7 @@
   "gui.mmdskin.model_settings.held_block_display": "手持方块",
   "gui.mmdskin.model_settings.held_block_scale": "方块缩放: %s",
   "gui.mmdskin.model_settings.tail_physics": "尾巴物理",
-  "gui.mmdskin.model_settings.tail_idle_lift": "闲置抬起 ×2",
+  "gui.mmdskin.model_settings.tail_idle_lift": "闲置抬起",
   "gui.mmdskin.model_settings.tail_movement_boost": "移动增强 ×1.5",
   "gui.mmdskin.model_settings.quick_bind": "快捷绑定",
   "gui.mmdskin.model_settings.slot": "槽位 %s",

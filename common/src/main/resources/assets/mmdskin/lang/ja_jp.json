@@ -128,7 +128,7 @@
   "gui.mmdskin.model_settings.held_block_display": "手持ちブロック",
   "gui.mmdskin.model_settings.held_block_scale": "ブロックスケール: %s",
   "gui.mmdskin.model_settings.tail_physics": "尻尾の物理",
-  "gui.mmdskin.model_settings.tail_idle_lift": "待機持上げ ×2",
+  "gui.mmdskin.model_settings.tail_idle_lift": "待機持上げ",
   "gui.mmdskin.model_settings.tail_movement_boost": "移動強化 ×1.5",
   "gui.mmdskin.model_settings.quick_bind": "クイックバインド",
   "gui.mmdskin.model_settings.slot": "スロット %s",

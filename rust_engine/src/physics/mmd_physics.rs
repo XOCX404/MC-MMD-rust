@@ -16,19 +16,23 @@ use super::collision_topology::{
     build_filter_plan, CollisionAabb, CollisionBody, CollisionFilterPlan, CollisionStabilityMode,
 };
 use super::config::get_config;
+use super::garment_contacts::build_garment_contact_plan;
 use super::kinematic_target_filter::KinematicTargetFilter;
 use super::mmd_joint::MmdJointData;
 use super::mmd_rigid_body::{
     body_collider_scale_flags, classify_tail_dynamic,
-    effective_collision_shape_size_with_static_scale, is_skirt_or_lower_garment,
-    is_tail_dynamic_part, MmdRigidBodyData, PhysicsMode,
+    effective_collision_shape_size_with_static_scale, garment_contact_body_flags,
+    is_skirt_or_lower_garment, is_tail_dynamic_part, MmdRigidBodyData, PhysicsMode,
 };
 use super::physics_diagnostics::model_topology_signature;
 use super::tail_forces::TailForceState;
 
 mod body_contacts;
 mod diagnostics;
+mod garment_diagnostics;
 mod motion_forces;
+
+pub use garment_diagnostics::{GarmentContactSnapshot, GarmentPhysicsSnapshot};
 
 /// MMD 物理世界管理器（Bullet3 引擎）
 ///
@@ -159,6 +163,14 @@ impl MMDPhysics {
 
         // 按整个模型的碰撞用途分类，避免把动态链的静态关节锚点误当成人体碰撞壳。
         let body_collider_flags = body_collider_scale_flags(pmx_rigid_bodies, pmx_joints);
+        // 兼容裙摆的资格独立于 PMX 原始掩码，避免漏配掩码导致补碰撞永远无法生效。
+        let garment_body_flags = garment_contact_body_flags(pmx_rigid_bodies, pmx_joints);
+        let garment_contact_plan = build_garment_contact_plan(
+            pmx_rigid_bodies,
+            &garment_body_flags,
+            config.collision_enabled,
+            self.collision_stability_mode,
+        );
 
         // 预分配容量
         self.rigid_bodies.reserve(pmx_rigid_bodies.len());
@@ -195,15 +207,30 @@ impl MMDPhysics {
 
         // 刚体入场前安装过滤规则，避免 broadphase 按旧规则缓存碰撞对。
         self.world.set_kinematic_filter(config.kinematic_filter);
+        for &(a_index, b_index) in &garment_contact_plan.forced_ignore_pairs {
+            let (Some(body_a), Some(body_b)) = (
+                self.rigid_bodies
+                    .get(a_index)
+                    .and_then(|body| body.bullet_body.as_ref()),
+                self.rigid_bodies
+                    .get(b_index)
+                    .and_then(|body| body.bullet_body.as_ref()),
+            ) else {
+                continue;
+            };
+            body_a.set_ignore_collision_check(body_b, true);
+        }
 
         // 第二步：统一将已存储的刚体添加到世界
         // 此时所有权已在 self.rigid_bodies 中，panic 时 Drop 链会正确清理
-        for rb_data in &self.rigid_bodies {
+        for (rb_data_index, rb_data) in self.rigid_bodies.iter().enumerate() {
             if let Some(ref body) = rb_data.bullet_body {
                 let group = 1i32 << (rb_data.group.min(15) as i32);
-                // 名称分类不能重新开启 PMX 作者明确排除的碰撞组。
-                let mask =
-                    effective_collision_mask(config.collision_enabled, rb_data.collision_mask);
+                // 只应用计划中为裙摆与骨盆/大腿补齐的组位。
+                let mask = effective_collision_mask(
+                    config.collision_enabled,
+                    garment_contact_plan.effective_masks[rb_data_index],
+                );
                 self.world.add_rigid_body(body, group, mask);
             }
         }
@@ -386,7 +413,7 @@ impl MMDPhysics {
     }
 
     /// 根据关联骨骼名补充尾巴分类，并缓存到每个刚体。
-    pub fn set_tail_bone_names(&mut self, bone_names: &[String]) {
+    pub fn set_tail_bone_names(&mut self, bone_names: &[String], bone_parents: &[i32]) {
         for body in &mut self.rigid_bodies {
             let bone_name = usize::try_from(body.bone_index)
                 .ok()
@@ -398,6 +425,9 @@ impl MMDPhysics {
                 [&body.name, &body.universal_name, bone_name],
             );
         }
+        self.tail_forces.set_wave_delays(super::tail_wave::tail_wave_delays(
+            &self.rigid_bodies, bone_parents,
+        ));
     }
 
     /// 设置当前物理实例的尾巴闲置与移动效果。
@@ -758,6 +788,8 @@ impl MMDPhysics {
         current_bone_transforms: &[Mat4],
     ) -> &[(usize, Mat4)] {
         self.dynamic_bone_buf.clear();
+        // 从最终求解姿态预测余下不足一个固定步的时间，接触面限制朝内预测。
+        self.world.sync_render_states();
 
         for rb_data in &self.rigid_bodies {
             if rb_data.physics_mode == PhysicsMode::FollowBone {

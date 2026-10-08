@@ -102,6 +102,7 @@ public final class Probe {
             }
             shader.cleanup();
             if (GL46C.glIsProgram(vanillaProgram)) throw new AssertionError("程序未释放");
+            OverlayProbe.run();
             if (GL46C.glGetError() != GL46C.GL_NO_ERROR) throw new AssertionError("OpenGL 状态异常");
             System.out.println("PASS: " + checked + " 个实际程序/选项组合，主程序、描边、颜色回读和变体切换");
         } finally {

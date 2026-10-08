@@ -2,6 +2,8 @@ package com.shiroha.mmdskin.render.backend;
 
 import com.shiroha.mmdskin.bridge.runtime.NativeRenderBackendPort;
 import com.shiroha.mmdskin.compat.iris.IrisCompat;
+import com.shiroha.mmdskin.player.render.PaperDollRenderScope;
+import com.shiroha.mmdskin.player.render.InventoryRenderScope;
 import com.shiroha.mmdskin.config.ConfigManager;
 import com.shiroha.mmdskin.config.RuntimeConfigPortHolder;
 import com.shiroha.mmdskin.model.runtime.ModelInstance;
@@ -416,11 +418,18 @@ public abstract class BaseModelInstance implements ModelInstance {
         if (shader.LINE_WIDTH != null)
             shader.LINE_WIDTH.set(RenderSystem.getShaderLineWidth());
 
-        shader.setSampler("Sampler1", lightMapTex);
-        shader.setSampler("Sampler2", lightMapTex);
-
-        RenderSystem.setShaderTexture(1, lightMapTex);
-        RenderSystem.setShaderTexture(2, lightMapTex);
+        boolean guiScene = PaperDollRenderScope.isActive() || InventoryRenderScope.isActive();
+        if (IrisCompat.isIrisProgram(shader) && !guiScene) {
+            // Iris 的 1/2 号纹理分别是覆盖色与游戏光照图。
+            var renderer = Minecraft.getInstance().gameRenderer;
+            renderer.overlayTexture().setupOverlayColor();
+            renderer.lightTexture().turnOnLightLayer();
+        } else {
+            shader.setSampler("Sampler1", lightMapTex);
+            shader.setSampler("Sampler2", lightMapTex);
+            RenderSystem.setShaderTexture(1, lightMapTex);
+            RenderSystem.setShaderTexture(2, lightMapTex);
+        }
     }
 
     protected abstract void doRenderModel(Entity entityIn, float entityYaw, float entityPitch,

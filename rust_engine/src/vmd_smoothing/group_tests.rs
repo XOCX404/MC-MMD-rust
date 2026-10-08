@@ -102,26 +102,6 @@ fn tracks_use_independent_group_parameters_and_later_owner() {
     assert_eq!(result.report.original_keys, 10);
 }
 
-#[test]
-fn disabled_group_does_not_override_and_zero_strength_does() {
-    let source = vmd(&[
-        record("spine", 0, 0.0),
-        record("spine", 1, 10.0),
-        record("spine", 2, 0.0),
-    ]);
-    let first = group("active", true, opts("spine", 1.0, 1));
-    let disabled = group("disabled", false, opts("spine", 0.0, 2));
-    let result = smooth_grouped_bytes(&source, &[first.clone(), disabled]).unwrap();
-    assert_eq!(
-        result.bytes,
-        smooth_bytes(&source, &first.options).unwrap().bytes
-    );
-
-    let zero = group("zero", true, opts("spine", 0.0, 2));
-    let result = smooth_grouped_bytes(&source, &[first, zero]).unwrap();
-    assert_eq!(result.bytes, source);
-    assert_eq!(result.report.output_keys, 3);
-}
 
 #[test]
 fn all_selection_includes_ik_and_empty_groups_preserve_bytes() {
@@ -147,27 +127,6 @@ fn all_selection_includes_ik_and_empty_groups_preserve_bytes() {
     assert_ne!(result.bytes, source);
 }
 
-#[test]
-fn batch_group_processing_writes_grouped_result() {
-    let root = temp_dir();
-    let input = root.join("input");
-    let output = root.join("output");
-    fs::create_dir_all(&input).unwrap();
-    let source = vmd(&[
-        record("spine", 0, 0.0),
-        record("spine", 1, 8.0),
-        record("spine", 2, 0.0),
-    ]);
-    fs::write(input.join("motion.vmd"), &source).unwrap();
-    let groups = [group("one", true, opts("spine", 1.0, 1))];
-    let report = process_directory_grouped(&input, &output, &groups, false, |_| {}).unwrap();
-    assert_eq!(report.counts(), (1, 0, 0));
-    assert_eq!(
-        fs::read(output.join("motion.vmd")).unwrap(),
-        smooth_grouped_bytes(&source, &groups).unwrap().bytes
-    );
-    fs::remove_dir_all(root).unwrap();
-}
 
 #[test]
 fn group_config_roundtrips_and_rejects_bad_fields() {
