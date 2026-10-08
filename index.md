@@ -61,6 +61,7 @@
   PMX 原始碰撞位直接作为 Bullet 允许掩码，不再取反；编辑器“不冲突群组”复选框对应原始位 0。合成碰撞体也遵守该语义。同组是否允许接触由该组位决定，不自动禁止同组碰撞。
 - `rust_engine/src/physics/kinematic_target_filter.rs`：运动学目标静止死区滤波器。设定微小位移与旋转阈值，过滤角色待机时的浮点动画微噪，避免运动学刚体微振持续碰撞裙摆和长发。
 - `rust_engine/src/model/runtime/`：`mod.rs` 保存 `MmdModel` 状态与构造；`animation.rs` 调度动画，`physics.rs` 调度物理，`tail_options.rs` 保存并转发每实例尾巴选项，`material_visibility.rs` 管理材质与第一人称索引，`render_data.rs` 提供 CPU/GPU 蒙皮数据，`head_eye.rs` 与 `vr.rs` 处理头眼和 VR。物理重建会重新应用实例尾巴选项。
+  `issue_diagnostics.rs` 提供按类别读取的只读问题快照，通过独立 `jni_bridge/issue_diagnostics.rs` 导出，不改变物理或蒙皮求值。关闭相关日志时不发起诊断查询。
   `physics.rs` 的跳帧、无效时间和零步求值路径同样回写已有物理姿态；`physics_tests.rs` 验证蒙皮连续性和显式重同步请求。穿模修复验证见 `PHYSICS_CLIPPING_FIX_VALIDATION.md`，Oguri 资产交接标准见 `OGURI_PHYSICS_ASSET_STANDARD.md`。
 - `rust_engine/src/skeleton/physics_writeback.rs`：按真实父子层级回写物理；模式 2 保留沿本帧父姿态传播的骨骼位置，模式 1 使用完整物理姿态，刷新非物理中间骨骼。
 - `rust_engine/src/physics/bullet_ffi.rs` 与 `bullet_ffi/tests.rs`：安全封装和原生回归。求解诊断读取真实刚体姿态，渲染继续使用 MotionState 插值；初始接触建立后变更禁碰时，通过 `refresh_body_collision_filter` 释放旧接触缓存。
@@ -153,6 +154,7 @@ JNI 相机数据仍为 32 字节、旋转为弧度，`stage/client/camera/StageC
 - 单模型独立配置：`.minecraft/config/mmdskin/model_configs/<规范化模型名>.json`（视线追踪范围、缩放、材质可见性和默认启用的 `tailIdleLiftEnabled`、`tailMovementBoostEnabled`）。旧配置缺省的尾巴字段启用，明确保存的 false 保留关闭。模型设置保存时同步到同名已加载实例，新实例加载时应用；Java `NativeScenePort.setTailPhysicsOptions` 经 JNI `SetTailPhysicsOptions` 更新原生实例。
 - 模型设置界面：`ui/selector/ModelSettingsScreen` 绘制尾巴物理开关及其他模型选项；`ModelSettingsLayout` 统一滚动视口、裁剪命中和滚动条几何。设置内容支持滚轮、拖动滚动条和翻页键，标题与底部操作固定，小窗口不再压缩卡片文字。回归见 `ModelSettingsLayoutTest`。
 - 玩家独立替换配置：持久化于 `ModelSelectorConfig`，支持在游戏内配置界面或 Alt 快捷轮盘中按玩家名/UUID 指定独立展示模型。
+- 调试设置：Fabric/NeoForge 的“调试”分类新增模型变形、两侧部件物理、碰撞模式、描边与纸娃娃四项日志，配置字段为 `debugModelDeformationLog`、`debugSidePhysicsLog`、`debugCollisionModeLog`、`debugOutlinePaperDollLog`，默认关闭且独立于旧物理日志。`IssueDiagnosticOptions` 定义位标记，`ModelIssueDiagnostics` 按模型限频转交原生快照到 `latest.log`，`OutlineRenderDiagnostics` 记录各渲染场景绘制前状态。使用指南见 `ISSUE_DIAGNOSTICS_GUIDE.md`；抽样与有界样例不代替游戏画面证据。
 
 ---
 ## 6. VMD 平滑与独立模型/动作预览工具

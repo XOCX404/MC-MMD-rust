@@ -4,14 +4,15 @@ use super::super::physics_diagnostics::{ContactWindow, JointLimitPeak};
 use super::MMDPhysics;
 use crate::physics::config::PhysicsConfig;
 use glam::{Mat3, Mat4, Vec3};
+use std::cell::Cell;
 
-#[derive(Clone, Copy)]
 pub(super) struct ActivePhysicsDebugConfig {
     pub(super) collision_enabled: bool,
     pub(super) joints_enabled: bool,
     pub(super) kinematic_filter: bool,
     pub(super) inertia_strength: f32,
     pub(super) static_collider_scale: f32,
+    pub(super) gravity_y: Cell<f32>,
 }
 
 impl ActivePhysicsDebugConfig {
@@ -22,6 +23,7 @@ impl ActivePhysicsDebugConfig {
             kinematic_filter: config.kinematic_filter,
             inertia_strength: config.inertia_strength,
             static_collider_scale: config.static_collider_scale,
+            gravity_y: Cell::new(config.gravity_y),
         }
     }
 }

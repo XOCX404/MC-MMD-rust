@@ -216,6 +216,10 @@ public class ConfigManager {
         return provider != null ? provider.isDebugHudEnabled() : false;
     }
 
+    public static int getIssueDiagnosticFlags() {
+        return provider != null ? provider.getIssueDiagnosticFlags() : 0;
+    }
+
     public static boolean isPaperDollEnabled() {
         return provider != null ? provider.isPaperDollEnabled() : true;
     }

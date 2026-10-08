@@ -1,6 +1,7 @@
 //! JNI 绑定层 - 与 Java 代码交互
 
 mod animation_handle;
+mod issue_diagnostics;
 mod model_handle;
 mod native_func;
 mod render_view;

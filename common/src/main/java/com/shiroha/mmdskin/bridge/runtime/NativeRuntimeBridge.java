@@ -123,6 +123,11 @@ public final class NativeRuntimeBridge implements
     }
 
     @Override
+    public String getIssueDebugDiagnostic(long modelHandle, int flags) {
+        return nativeFunc().GetIssueDebugDiagnostic(modelHandle, flags);
+    }
+
+    @Override
     public String takeRustLogs() {
         return nativeFunc().TakeRustLogs();
     }

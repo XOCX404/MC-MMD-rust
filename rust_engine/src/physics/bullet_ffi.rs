@@ -323,7 +323,13 @@ impl BulletWorld {
 
     /// 复制当前求解步中仍处于穿透状态的真实接触流形。
     pub fn contact_manifolds(&self) -> Vec<ContactManifold> {
-        let count = unsafe { ffi::bw_world_get_contact_manifold_count(self.ptr) }.max(0) as usize;
+        let count = self.contact_manifold_count();
+        self.contact_manifolds_bounded(count)
+    }
+
+    /// 读取最多 limit 条接触，避免诊断快照按模型规模分配无界缓冲。
+    pub fn contact_manifolds_bounded(&self, limit: usize) -> Vec<ContactManifold> {
+        let count = self.contact_manifold_count().min(limit);
         if count == 0 {
             return Vec::new();
         }
@@ -345,6 +351,10 @@ impl BulletWorld {
         .clamp(0, count as i32) as usize;
         raw.truncate(written);
         raw.into_iter().map(ContactManifold::from).collect()
+    }
+
+    pub fn contact_manifold_count(&self) -> usize {
+        unsafe { ffi::bw_world_get_contact_manifold_count(self.ptr) }.max(0) as usize
     }
 
     pub fn set_gravity(&self, x: f32, y: f32, z: f32) {

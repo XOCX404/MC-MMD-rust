@@ -85,6 +85,10 @@ public class ConfigData {
     public int textureCacheBudgetMB = 256;
 
     public boolean debugHudEnabled = false;
+    public boolean debugModelDeformationLog = false;
+    public boolean debugSidePhysicsLog = false;
+    public boolean debugCollisionModeLog = false;
+    public boolean debugOutlinePaperDollLog = false;
 
     /** 屏幕角落纸娃娃渲染总开关 */
     public boolean paperDollEnabled = true;

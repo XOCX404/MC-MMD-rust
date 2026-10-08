@@ -18,6 +18,7 @@ import com.shiroha.mmdskin.render.material.ModelMaterial;
 import com.shiroha.mmdskin.render.scene.RenderScene;
 import com.shiroha.mmdskin.render.material.SubMeshDrawHelper;
 import com.shiroha.mmdskin.render.outline.OutlineRenderPass;
+import com.shiroha.mmdskin.render.outline.OutlineRenderDiagnostics;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.client.renderer.texture.TextureManager;
@@ -81,6 +82,19 @@ final class OpenGlModelRenderer {
         RenderPerformanceProfiler.get().endTimer(RenderPerformanceProfiler.SECTION_SUB_MESH_FETCH, subMeshTimer);
 
         boolean useToon = initializeToonShaderIfNeeded(!isGuiScene);
+        int diagnosticFlags = ConfigManager.getIssueDiagnosticFlags();
+        if (OutlineRenderDiagnostics.shouldSample(diagnosticFlags, modelHandle, context, System.nanoTime())) {
+            target.modelViewMatBuff.clear();
+            target.projMatBuff.clear();
+            target.composeModelViewMatrix(deliverStack).get(target.modelViewMatBuff);
+            RenderSystem.getProjectionMatrix().get(target.projMatBuff);
+            target.modelViewMatBuff.position(0);
+            target.projMatBuff.position(0);
+            OutlineRenderDiagnostics.log(modelHandle, target.getModelName(), "CPU/OpenGL", context,
+                    useToon, target.projMatBuff, target.modelViewMatBuff, target.modelScaleValue(),
+                    target.subMeshDataBuf, target.subMeshCount,
+                    (materialId, baseAlpha) -> effectiveOutlineAlpha(target, materialId, baseAlpha));
+        }
         float toonIntensity = isGuiScene ? 1.0f
                 : (IrisCompat.isIrisShaderActive() ? light.intensity() * 0.8f : light.intensity());
         if (useToon) {

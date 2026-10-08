@@ -12,6 +12,7 @@ import com.shiroha.mmdskin.config.ConfigManager;
 import com.shiroha.mmdskin.render.material.ModelMaterial;
 import com.shiroha.mmdskin.render.material.SubMeshDrawHelper;
 import com.shiroha.mmdskin.render.outline.OutlineRenderPass;
+import com.shiroha.mmdskin.render.outline.OutlineRenderDiagnostics;
 import com.shiroha.mmdskin.render.pipeline.LightingHelper;
 import com.shiroha.mmdskin.render.pipeline.GpuTimerQueryPool;
 import com.shiroha.mmdskin.render.pipeline.RenderPerformanceProfiler;
@@ -83,6 +84,18 @@ final class GpuSkinningModelRenderer {
         target.projMatBuff.clear();
         target.composeModelViewMatrix(deliverStack).get(target.modelViewMatBuff);
         RenderSystem.getProjectionMatrix().get(target.projMatBuff);
+
+        if (OutlineRenderDiagnostics.shouldSample(ConfigManager.getIssueDiagnosticFlags(), modelHandle,
+                context, System.nanoTime())) {
+            target.modelViewMatBuff.position(0);
+            target.projMatBuff.position(0);
+            OutlineRenderDiagnostics.log(modelHandle, target.getModelName(), "GPU/Compute", context,
+                    useToon && GpuSkinningModelInstance.toonShaderCpu != null
+                            && GpuSkinningModelInstance.toonShaderCpu.isInitialized(),
+                    target.projMatBuff, target.modelViewMatBuff, target.modelScaleValue(),
+                    target.subMeshDataBuf, target.subMeshCount,
+                    (materialId, baseAlpha) -> effectiveOutlineAlpha(target, materialId, baseAlpha));
+        }
 
         target.currentDeliverStack = deliverStack;
 

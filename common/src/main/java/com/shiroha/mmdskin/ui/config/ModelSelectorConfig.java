@@ -254,8 +254,57 @@ public class ModelSelectorConfig {
 
     public void setPlayerModelByUuid(java.util.UUID playerUuid, String modelName) {
         if (playerUuid != null) {
-            setPlayerModel(playerUuid.toString(), modelName);
+            setPlayerModelBinding(playerUuid, null, true, modelName, getLocalPlayerUuid(), getLocalPlayerName());
         }
+    }
+
+    /** 原子切换玩家绑定键，避免节流跳过第二次保存。 */
+    public void setPlayerModelBinding(UUID playerUuid, String playerName, boolean bindByUuid, String modelName) {
+        setPlayerModelBinding(playerUuid, playerName, bindByUuid, modelName,
+                getLocalPlayerUuid(), getLocalPlayerName());
+    }
+
+    synchronized void setPlayerModelBinding(UUID playerUuid, String playerName, boolean bindByUuid,
+                                            String modelName, UUID localPlayerUuid, String localPlayerName) {
+        ensureData();
+        String normalizedModel = modelName == null || modelName.isBlank()
+                ? UIConstants.DEFAULT_MODEL_NAME : modelName;
+        boolean useUuid = bindByUuid && playerUuid != null;
+        String nameKey = playerName == null || playerName.isBlank() ? null : playerName;
+
+        if (UIConstants.DEFAULT_MODEL_NAME.equals(normalizedModel)) {
+            if (playerUuid != null) data.playerModels.remove(playerUuid.toString());
+            if (nameKey != null) data.playerModels.remove(nameKey);
+        } else if (useUuid) {
+            data.playerModels.put(playerUuid.toString(), normalizedModel);
+            if (nameKey != null) data.playerModels.remove(nameKey);
+        } else if (nameKey != null) {
+            data.playerModels.put(nameKey, normalizedModel);
+            if (playerUuid != null) data.playerModels.remove(playerUuid.toString());
+        } else if (playerUuid != null) {
+            data.playerModels.put(playerUuid.toString(), normalizedModel);
+        } else {
+            return;
+        }
+
+        saveInternal(true);
+        boolean localUuidMatch = playerUuid != null && playerUuid.equals(localPlayerUuid);
+        boolean localNameMatch = nameKey != null && nameKey.equals(localPlayerName);
+        if (useUuid ? localUuidMatch : (localUuidMatch || localNameMatch)) {
+            UUID broadcastUuid = localUuidMatch ? playerUuid : localPlayerUuid;
+            String effectiveModel = getPlayerModelByUuidOrName(localPlayerUuid, localPlayerName);
+            PlayerModelSyncService.broadcastLocalModelSelection(broadcastUuid, effectiveModel);
+        }
+    }
+
+    private static UUID getLocalPlayerUuid() {
+        net.minecraft.client.Minecraft minecraft = net.minecraft.client.Minecraft.getInstance();
+        return minecraft.player == null ? null : minecraft.player.getUUID();
+    }
+
+    private static String getLocalPlayerName() {
+        net.minecraft.client.Minecraft minecraft = net.minecraft.client.Minecraft.getInstance();
+        return minecraft.player == null ? null : minecraft.player.getName().getString();
     }
 
     public void setPlayerModel(String playerName, String modelName) {
